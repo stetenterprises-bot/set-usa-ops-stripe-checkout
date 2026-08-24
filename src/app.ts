@@ -110,44 +110,49 @@ export function createApp(config: RuntimeConfig): express.Express {
     return response.json({ publishableKey: config.stripePublishableKey });
   });
 
-  app.post("/checkout/session", async (request, response) => {
+  app.post("/checkout/confirm-intent", async (request, response) => {
     if (!integration || !config.stripePublishableKey) {
       return response.status(503).json({ error: "Stripe test checkout credentials are not configured." });
+    }
+    const confirmationTokenId = request.body?.confirmationTokenId;
+    if (typeof confirmationTokenId !== "string" || !/^ct_[A-Za-z0-9_]+$/.test(confirmationTokenId)) {
+      return response.status(400).json({ error: "A valid ConfirmationToken ID is required." });
     }
     const suppliedKey = request.header("idempotency-key");
     if (suppliedKey && !/^[A-Za-z0-9_-]{8,200}$/.test(suppliedKey)) {
       return response.status(400).json({ error: "Idempotency-Key must contain 8-200 URL-safe characters." });
     }
-    const idempotencyKey = suppliedKey ?? `set-checkout-${crypto.randomUUID()}`;
+    const idempotencyKey = suppliedKey ?? `set-payment-intent-${crypto.randomUUID()}`;
     try {
-      const session = await integration.createEmbeddedCheckoutSession(idempotencyKey);
-      if (!session.client_secret) {
-        return response.status(502).json({ error: "Stripe did not return a Checkout client secret." });
+      const paymentIntent = await integration.createAndConfirmPaymentIntent(confirmationTokenId, idempotencyKey);
+      if (!paymentIntent.client_secret) {
+        return response.status(502).json({ error: "Stripe did not return a PaymentIntent client secret." });
       }
-      return response.status(201).json({ client_secret: session.client_secret });
+      return response.status(201).json({
+        clientSecret: paymentIntent.client_secret,
+        paymentIntentId: paymentIntent.id,
+        status: paymentIntent.status
+      });
     } catch {
-      return response.status(502).json({ error: "Stripe Checkout Session creation failed." });
+      return response.status(502).json({ error: "Stripe PaymentIntent confirmation failed." });
     }
   });
 
-  app.get("/checkout/session/:sessionId", async (request, response) => {
+  app.get("/checkout/payment-intent/:paymentIntentId", async (request, response) => {
     if (!integration) {
       return response.status(503).json({ error: "Stripe test credentials are not configured." });
     }
-    const expectedSessionPrefix = stripeMode === "live" ? "cs_live_" : "cs_test_";
-    if (!request.params.sessionId.startsWith(expectedSessionPrefix) || !/^[A-Za-z0-9_]+$/.test(request.params.sessionId)) {
-      return response.status(400).json({ error: "Invalid Checkout Session ID for the configured mode." });
+    if (!/^pi_[A-Za-z0-9_]+$/.test(request.params.paymentIntentId)) {
+      return response.status(400).json({ error: "Invalid PaymentIntent ID." });
     }
     try {
-      const session = await integration.retrieveCheckoutSession(request.params.sessionId);
+      const paymentIntent = await integration.retrievePaymentIntent(request.params.paymentIntentId);
       return response.json({
-        id: session.id,
-        status: session.status,
-        payment_status: session.payment_status,
-        customer_email: session.customer_details?.email ?? null
+        id: paymentIntent.id,
+        status: paymentIntent.status
       });
     } catch {
-      return response.status(502).json({ error: "Stripe Checkout Session lookup failed." });
+      return response.status(502).json({ error: "Stripe PaymentIntent lookup failed." });
     }
   });
 

@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "project": {
+    "catalog": "prod",
+    "initializedAt": "2026-08-24T08:48:27.034Z",
+    "merchantDisplayName": "SET Business Consults",
+    "merchantId": "acct_1TTLQF2NmiYTbEIN",
+    "projectId": "project_61VHHVj5tBccbIy9D16UcjNbUWSQa7IlJM6tWxM5IEca",
+    "projectName": "Set Business Consults (USA Ops)"
+  },
+  "providers": {
+    "railway": {
+      "accountRequestId": "facctrq_61VHHb11BDN7pWLr716UcjNbUWSQa7IlJM6tWxM5IR56",
+      "configuration": {},
+      "linkedAt": "2026-08-24T08:53:56.489Z",
+      "providerId": "prvdr_61UK2uWsoydL7tUBp57Fg",
+      "providerName": "Railway",
+      "redirectUrl": null,
+      "requestedAt": "2026-08-24T08:53:56.489Z",
+      "status": "complete"
+    }
+  },
+  "resources": {
+    "railway-plan": {
+      "configuration": {},
+      "createdAt": "2026-08-24T08:53:57.753Z",
+      "lastRevealedAt": "2026-08-24T08:53:58.053Z",
+      "lastStatus": "complete",
+      "name": "railway-plan",
+      "providerId": "prvdr_61UK2uWsoydL7tUBp57Fg",
+      "providerName": "Railway",
+      "resourceId": "fres_61VHHb30jyYFlchai16UcjNbUWSQa7IlJM6tWxM5I7aS",
+      "serviceId": "free"
+    }
+  },
+  "activeEnvironment": "production"
+}

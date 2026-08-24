@@ -2,14 +2,15 @@ import { describe, expect, it, vi } from "vitest";
 import type Stripe from "stripe";
 import { createStripeIntegration } from "../src/stripe-integration.js";
 
-describe("direct embedded Checkout", () => {
-  it("creates a server-authoritative Elements session without Connect or fixed payment methods", async () => {
+describe("server-confirmed Payment Element", () => {
+  it("creates and confirms a server-authoritative PaymentIntent from a ConfirmationToken", async () => {
     const create = vi.fn().mockResolvedValue({
-      id: "cs_test_example",
-      client_secret: "cs_test_example_secret_example"
+      id: "pi_test_example",
+      client_secret: "pi_test_example_secret_example",
+      status: "succeeded"
     });
     const stripe = {
-      checkout: { sessions: { create, retrieve: vi.fn() } }
+      paymentIntents: { create, retrieve: vi.fn() }
     } as unknown as Stripe;
     const store = {
       read: vi.fn().mockResolvedValue({}),
@@ -26,19 +27,19 @@ describe("direct embedded Checkout", () => {
       store
     );
 
-    await integration.createEmbeddedCheckoutSession("checkout_retry_12345678");
+    await integration.createAndConfirmPaymentIntent("ct_test_example", "checkout_retry_12345678");
 
     expect(create).toHaveBeenCalledOnce();
     const [params, options] = create.mock.calls[0]!;
     expect(params).toMatchObject({
-      ui_mode: "elements",
-      mode: "payment",
-      automatic_tax: { enabled: false },
-      line_items: [{ price_data: { currency: "usd", unit_amount: 49_500 }, quantity: 1 }]
+      amount: 49_500,
+      currency: "usd",
+      confirm: true,
+      confirmation_token: "ct_test_example",
+      metadata: { seller: "SET Business Consults", offer: "workflow_improvement_review" }
     });
-    expect(params.integration_identifier).toMatch(/^set-workflow-review-[a-z]{8}$/);
     expect(params).not.toHaveProperty("payment_method_types");
-    expect(params).not.toHaveProperty("payment_intent_data");
+    expect(params).not.toHaveProperty("automatic_payment_methods");
     expect(options).toEqual({ idempotencyKey: "checkout_retry_12345678" });
   });
 });

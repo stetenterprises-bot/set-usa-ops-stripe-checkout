@@ -49,7 +49,22 @@ describe("development server", () => {
   it("fails closed when embedded Checkout credentials are not configured", async () => {
     const app = createApp({ port: 4242, applicationBaseUrl: "http://127.0.0.1:4242" });
     expect((await request(app).get("/checkout/config")).status).toBe(503);
-    expect((await request(app).post("/checkout/session")).status).toBe(503);
+    expect((await request(app).post("/checkout/confirm-intent").send({ confirmationTokenId: "ct_test_example" })).status).toBe(503);
+  });
+
+  it("rejects malformed ConfirmationToken IDs before calling Stripe", async () => {
+    const app = createApp({
+      port: 4242,
+      applicationBaseUrl: "http://127.0.0.1:4242",
+      stripeApiKey: ["sk", "test", "unitvalue"].join("_"),
+      stripePublishableKey: ["pk", "test", "unitvalue"].join("_")
+    });
+
+    const response = await request(app)
+      .post("/checkout/confirm-intent")
+      .send({ confirmationTokenId: "not-a-token" });
+
+    expect(response.status).toBe(400);
   });
 
   it("does not expose sandbox-only account routes in live mode", async () => {

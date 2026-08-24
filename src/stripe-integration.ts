@@ -43,38 +43,27 @@ export function createStripeIntegration(
   store: StripeResourceStore
 ) {
   return {
-    async createEmbeddedCheckoutSession(idempotencyKey: string) {
+    async createAndConfirmPaymentIntent(confirmationTokenId: string, idempotencyKey: string) {
       requireConfiguredKey(config);
-      return stripe.checkout.sessions.create(
+      return stripe.paymentIntents.create(
         {
-          ui_mode: "elements",
-          mode: "payment",
-          integration_identifier: `set-workflow-review-${integrationIdentifierSuffix()}`,
-          line_items: [{
-            price_data: {
-              currency: "usd",
-              product_data: {
-                name: "Workflow Improvement Review",
-                description: "A focused operational review with prioritized findings and next-step recommendations."
-              },
-              unit_amount: 49_500
-            },
-            quantity: 1
-          }],
-          automatic_tax: { enabled: false },
-          return_url: `${config.applicationBaseUrl}/checkout/return?session_id={CHECKOUT_SESSION_ID}`,
+          amount: 49_500,
+          currency: "usd",
+          confirm: true,
+          confirmation_token: confirmationTokenId,
           metadata: {
             seller: "SET Business Consults",
-            offer: "workflow_improvement_review"
+            offer: "workflow_improvement_review",
+            integration: `set_server_confirmed_${integrationIdentifierSuffix()}`
           }
         },
         { idempotencyKey }
       );
     },
 
-    async retrieveCheckoutSession(sessionId: string) {
+    async retrievePaymentIntent(paymentIntentId: string) {
       requireConfiguredKey(config);
-      return stripe.checkout.sessions.retrieve(sessionId);
+      return stripe.paymentIntents.retrieve(paymentIntentId);
     },
 
     async createConnectedAccount(country: string) {

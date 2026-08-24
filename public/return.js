@@ -1,24 +1,22 @@
 const title = document.querySelector("#status-title");
 const message = document.querySelector("#status-message");
-const sessionId = new URLSearchParams(window.location.search).get("session_id");
+const paymentIntentId = new URLSearchParams(window.location.search).get("payment_intent");
 
 async function showStatus() {
-  if (!sessionId) {
+  if (!paymentIntentId) {
     title.textContent = "Payment status unavailable";
-    message.textContent = "No Checkout Session was supplied.";
+    message.textContent = "No PaymentIntent was supplied.";
     return;
   }
 
   try {
-    const response = await fetch(`/checkout/session/${encodeURIComponent(sessionId)}`);
-    const session = await response.json();
-    if (!response.ok) throw new Error(session.error ?? "Unable to retrieve payment status.");
+    const response = await fetch(`/checkout/payment-intent/${encodeURIComponent(paymentIntentId)}`);
+    const paymentIntent = await response.json();
+    if (!response.ok) throw new Error(paymentIntent.error ?? "Unable to retrieve payment status.");
 
-    if (session.payment_status === "paid") {
+    if (paymentIntent.status === "succeeded") {
       title.textContent = "Payment received";
-      message.textContent = session.customer_email
-        ? `A confirmation will be sent to ${session.customer_email}.`
-        : "Your payment was completed successfully.";
+      message.textContent = "Your payment was completed successfully.";
       return;
     }
 

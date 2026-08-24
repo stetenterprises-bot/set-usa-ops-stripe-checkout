@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "providers": {
+    "railway": {
+      "name": "Railway"
+    }
+  },
+  "resources": {
+    "railway-plan": {
+      "name": "railway-plan",
+      "providerName": "Railway",
+      "serviceId": "free"
+    }
+  },
+  "environments": {
+    "default": {
+      "output": ".env",
+      "resources": [
+        {
+          "resourceName": "railway-plan"
+        }
+      ]
+    },
+    "production": {
+      "output": ".env.production",
+      "resources": [
+        {
+          "resourceName": "railway-plan"
+        }
+      ]
+    }
+  }
+}

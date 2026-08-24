@@ -14,21 +14,18 @@ async function initializeCheckout() {
     if (!configResponse.ok) throw new Error("Stripe test checkout is not configured.");
     const { publishableKey } = await configResponse.json();
 
-    const idempotencyKey = crypto.randomUUID().replaceAll("-", "_");
-    const clientSecret = fetch("/checkout/session", {
-      method: "POST",
-      headers: { "Idempotency-Key": idempotencyKey }
-    }).then(async (response) => {
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error ?? "Unable to create Checkout Session.");
-      return body.client_secret;
-    });
-
     const stripe = Stripe(publishableKey);
-    const checkout = stripe.initCheckoutElementsSdk({ clientSecret });
-    const contactDetails = checkout.createContactDetailsElement();
-    const paymentElement = checkout.createPaymentElement();
-    contactDetails.mount("#contact-details-element");
+    const elements = stripe.elements({
+      mode: "payment",
+      amount: 49_500,
+      currency: "usd",
+      paymentMethodCreation: "manual",
+      appearance: {
+        theme: "stripe",
+        variables: { colorPrimary: "#c97c4e", borderRadius: "10px" }
+      }
+    });
+    const paymentElement = elements.create("payment", { layout: "accordion" });
     paymentElement.mount("#payment-element");
 
     loading.hidden = true;
@@ -39,12 +36,34 @@ async function initializeCheckout() {
       submitButton.disabled = true;
       message.textContent = "";
       try {
-        const loadActionsResult = await checkout.loadActions();
-        if (loadActionsResult.type !== "success") {
-          throw new Error("Checkout is not ready. Please review your payment details.");
+        const { error: submitError } = await elements.submit();
+        if (submitError) throw new Error(submitError.message);
+
+        const { error: tokenError, confirmationToken } = await stripe.createConfirmationToken({
+          elements,
+          params: { return_url: `${window.location.origin}/checkout/return` }
+        });
+        if (tokenError) throw new Error(tokenError.message);
+        if (!confirmationToken) throw new Error("Stripe did not return a ConfirmationToken.");
+
+        const idempotencyKey = crypto.randomUUID().replaceAll("-", "_");
+        const response = await fetch("/checkout/confirm-intent", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Idempotency-Key": idempotencyKey
+          },
+          body: JSON.stringify({ confirmationTokenId: confirmationToken.id })
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error ?? "Unable to confirm the payment.");
+
+        if (result.status === "requires_action") {
+          const { error: actionError } = await stripe.handleNextAction({ clientSecret: result.clientSecret });
+          if (actionError) throw new Error(actionError.message);
         }
-        const result = await loadActionsResult.actions.confirm();
-        if (result?.error) throw new Error(result.error.message);
+
+        window.location.assign(`/checkout/return?payment_intent=${encodeURIComponent(result.paymentIntentId)}`);
       } catch (error) {
         showError(error);
         submitButton.disabled = false;

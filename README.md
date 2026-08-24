@@ -13,9 +13,9 @@ npm run dev
 
 Open `http://localhost:4242/health`. The server can run without Stripe credentials.
 
-## Embedded Checkout page
+## Server-confirmed Payment Element page
 
-`GET /checkout` serves an embedded Checkout Sessions + Payment Element flow for the $495 Workflow Improvement Review. It is direct SET billing: it does not use Connect, application fees, transfer fields, hard-coded payment methods, or automatic tax.
+`GET /checkout` serves a Payment Intents + Payment Element flow for the $495 Workflow Improvement Review. Stripe.js renders Elements before an Intent exists, creates a short-lived ConfirmationToken, and sends only that token ID to `POST /checkout/confirm-intent`. The server fixes the amount and currency, then creates and confirms the PaymentIntent in one idempotent request. It is direct SET billing: it does not use Connect, application fees, transfer fields, hard-coded payment methods, or automatic tax.
 
 Configure a test restricted key and the matching test publishable key in the ignored `.env` file:
 
@@ -25,7 +25,7 @@ STRIPE_PUBLISHABLE_KEY=<pk_test_... key>
 STRIPE_WEBHOOK_SECRET=<whsec_... from stripe listen>
 ```
 
-Then run `npm run dev` and open `http://localhost:4242/checkout`. Stripe redirects back to `/checkout/return`, but fulfillment must rely on the signature-verified `/webhooks/stripe` endpoint rather than the browser return page.
+Then run `npm run dev` and open `http://localhost:4242/checkout`. Stripe returns to `/checkout/return` after any required customer action, but fulfillment must rely on the signature-verified `payment_intent.succeeded` event at `/webhooks/stripe` rather than the browser return page.
 
 ## $0.50 machine-payment API
 
