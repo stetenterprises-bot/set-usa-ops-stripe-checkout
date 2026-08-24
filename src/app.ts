@@ -8,6 +8,21 @@ import { STRIPE_API_VERSION, type RuntimeConfig } from "./config.js";
 import { createStripeIntegration } from "./stripe-integration.js";
 import { createJsonResourceStore } from "./resource-store.js";
 
+const HANDLED_PAYMENT_INTENT_EVENTS = new Set([
+  "payment_intent.created",
+  "payment_intent.requires_action",
+  "payment_intent.processing",
+  "payment_intent.succeeded",
+  "payment_intent.payment_failed",
+  "payment_intent.canceled"
+]);
+
+function normalizedEmail(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const email = value.trim();
+  return email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : null;
+}
+
 export function createApp(config: RuntimeConfig): express.Express {
   const app = express();
   const stripeMode = config.stripeMode ?? "test";
@@ -88,8 +103,18 @@ export function createApp(config: RuntimeConfig): express.Express {
           config.stripeWebhookSecret
         );
 
-        // Route recognized event types here. Unknown events are acknowledged safely.
-        response.status(200).json({ received: true, eventId: event.id, eventType: event.type });
+        const handled = HANDLED_PAYMENT_INTENT_EVENTS.has(event.type);
+        if (handled) {
+          const paymentIntent = event.data.object as Stripe.PaymentIntent;
+          console.info(JSON.stringify({
+            kind: "stripe_payment_intent_event",
+            eventId: event.id,
+            eventType: event.type,
+            paymentIntentId: paymentIntent.id,
+            status: paymentIntent.status
+          }));
+        }
+        response.status(200).json({ received: true, handled, eventId: event.id, eventType: event.type });
       } catch {
         response.status(400).json({ error: "Invalid Stripe webhook signature." });
       }
@@ -104,19 +129,25 @@ export function createApp(config: RuntimeConfig): express.Express {
   });
 
   app.get("/checkout/config", (_request, response) => {
+    response.setHeader("Cache-Control", "no-store");
     if (!config.stripePublishableKey) {
-      return response.status(503).json({ error: "Stripe test publishable key is not configured." });
+      return response.status(503).json({ error: "Stripe checkout is not configured." });
     }
     return response.json({ publishableKey: config.stripePublishableKey });
   });
 
   app.post("/checkout/confirm-intent", async (request, response) => {
+    response.setHeader("Cache-Control", "no-store");
     if (!integration || !config.stripePublishableKey) {
-      return response.status(503).json({ error: "Stripe test checkout credentials are not configured." });
+      return response.status(503).json({ error: "Stripe checkout credentials are not configured." });
     }
     const confirmationTokenId = request.body?.confirmationTokenId;
     if (typeof confirmationTokenId !== "string" || !/^ct_[A-Za-z0-9_]+$/.test(confirmationTokenId)) {
       return response.status(400).json({ error: "A valid ConfirmationToken ID is required." });
+    }
+    const customerEmail = normalizedEmail(request.body?.customerEmail);
+    if (!customerEmail) {
+      return response.status(400).json({ error: "A valid customer email address is required." });
     }
     const suppliedKey = request.header("idempotency-key");
     if (suppliedKey && !/^[A-Za-z0-9_-]{8,200}$/.test(suppliedKey)) {
@@ -124,7 +155,7 @@ export function createApp(config: RuntimeConfig): express.Express {
     }
     const idempotencyKey = suppliedKey ?? `set-payment-intent-${crypto.randomUUID()}`;
     try {
-      const paymentIntent = await integration.createAndConfirmPaymentIntent(confirmationTokenId, idempotencyKey);
+      const paymentIntent = await integration.createAndConfirmPaymentIntent(confirmationTokenId, customerEmail, idempotencyKey);
       if (!paymentIntent.client_secret) {
         return response.status(502).json({ error: "Stripe did not return a PaymentIntent client secret." });
       }
@@ -139,8 +170,9 @@ export function createApp(config: RuntimeConfig): express.Express {
   });
 
   app.get("/checkout/payment-intent/:paymentIntentId", async (request, response) => {
+    response.setHeader("Cache-Control", "no-store");
     if (!integration) {
-      return response.status(503).json({ error: "Stripe test credentials are not configured." });
+      return response.status(503).json({ error: "Stripe credentials are not configured." });
     }
     if (!/^pi_[A-Za-z0-9_]+$/.test(request.params.paymentIntentId)) {
       return response.status(400).json({ error: "Invalid PaymentIntent ID." });

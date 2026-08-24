@@ -2,7 +2,7 @@
   "name": "set-usa-ops-stripe-development",
   "version": "0.1.0",
   "private": true,
-  "description": "Test-mode-only local Stripe development environment for SET Business Consults USA Ops.",
+  "description": "SET Business Consults payment service with a live-gated checkout and test-only development routes.",
   "type": "module",
   "engines": {
     "node": ">=24 <25"

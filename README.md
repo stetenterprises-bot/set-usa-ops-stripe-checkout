@@ -15,7 +15,7 @@ Open `http://localhost:4242/health`. The server can run without Stripe credentia
 
 ## Server-confirmed Payment Element page
 
-`GET /checkout` serves a Payment Intents + Payment Element flow for the $495 Workflow Improvement Review. Stripe.js renders Elements before an Intent exists, creates a short-lived ConfirmationToken, and sends only that token ID to `POST /checkout/confirm-intent`. The server fixes the amount and currency, then creates and confirms the PaymentIntent in one idempotent request. The client and server both use an explicit card-only allowlist, so Stripe's dynamic payment-method selection is disabled for this flow. It is direct SET billing: it does not use Connect, application fees, transfer fields, Custom Payment Methods, or automatic tax.
+`GET /checkout` serves a Payment Intents + Payment Element flow for the $495 Workflow Improvement Review. Stripe.js renders Elements before an Intent exists, creates a short-lived ConfirmationToken, and sends its ID plus the buyer-supplied receipt/follow-up email to `POST /checkout/confirm-intent`. The server fixes the amount and currency, then creates and confirms the PaymentIntent in one idempotent request. The client and server both use the user-required explicit card-only allowlist, so Stripe's dynamic payment-method selection is disabled for this flow. It is direct SET billing: it does not use Connect, application fees, transfer fields, Custom Payment Methods, or automatic tax.
 
 Configure a test restricted key and the matching test publishable key in the ignored `.env` file:
 
@@ -25,7 +25,7 @@ STRIPE_PUBLISHABLE_KEY=<pk_test_... key>
 STRIPE_WEBHOOK_SECRET=<whsec_... from stripe listen>
 ```
 
-Then run `npm run dev` and open `http://localhost:4242/checkout`. Stripe returns to `/checkout/return` after any required customer action, but fulfillment must rely on the signature-verified `payment_intent.succeeded` event at `/webhooks/stripe` rather than the browser return page.
+Then run `npm run dev` and open `http://localhost:4242/checkout`. Stripe returns to `/checkout/return` after any required customer action. The webhook verifies and classifies PaymentIntent lifecycle events, but durable automated fulfillment is not implemented; confirm `payment_intent.succeeded` in Stripe before beginning manual delivery.
 
 ## $0.50 machine-payment API
 
@@ -96,10 +96,10 @@ git config core.hooksPath .githooks
 ## Development status
 
 - `[V]` Local configuration and tests pin API version `2026-07-29.dahlia`.
-- `[V]` Live API-key prefixes are blocked and `.env` files are ignored.
+- `[V]` Live credentials are accepted only when production mode, HTTPS, and the required Checkout and webhook configuration are all present; `.env` files are ignored.
 - `[V]` Webhook requests fail closed unless the signature can be verified.
-- `[I]` Account authentication, account-default API version, and provider webhooks have not been inspected.
-- `[D]` No live payment, catalog, customer, account, or webhook object is created by this scaffold.
+- `[V]` The live SET account, production deployment, and dedicated PaymentIntent webhook endpoint were inspected on 2026-08-24.
+- `[D]` No live payment was submitted during implementation or verification. Fulfillment remains a manual, webhook-verified operating step until a durable reconciliation store is added.
 
 ## Blueprint routes
 

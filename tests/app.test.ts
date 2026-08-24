@@ -1,5 +1,6 @@
 import request from "supertest";
-import { describe, expect, it } from "vitest";
+import Stripe from "stripe";
+import { describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/app.js";
 
 describe("development server", () => {
@@ -28,6 +29,33 @@ describe("development server", () => {
     expect(response.status).toBe(503);
   });
 
+  it("verifies and classifies PaymentIntent webhook events", async () => {
+    const webhookSecret = ["whsec", "unitvalue"].join("_");
+    const payload = JSON.stringify({
+      id: "evt_test_succeeded",
+      object: "event",
+      type: "payment_intent.succeeded",
+      data: { object: { id: "pi_test_succeeded", object: "payment_intent", status: "succeeded" } }
+    });
+    const signature = Stripe.webhooks.generateTestHeaderString({ payload, secret: webhookSecret });
+    const log = vi.spyOn(console, "info").mockImplementation(() => undefined);
+
+    const response = await request(createApp({
+      port: 4242,
+      applicationBaseUrl: "http://127.0.0.1:4242",
+      stripeWebhookSecret: webhookSecret
+    }))
+      .post("/webhooks/stripe")
+      .set("content-type", "application/json")
+      .set("stripe-signature", signature)
+      .send(payload);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({ received: true, handled: true, eventType: "payment_intent.succeeded" });
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('"paymentIntentId":"pi_test_succeeded"'));
+    log.mockRestore();
+  });
+
   it("fails closed when the paid API is not configured", async () => {
     const response = await request(createApp({ port: 4242, applicationBaseUrl: "http://127.0.0.1:4242" }))
       .post("/paid")
@@ -49,7 +77,7 @@ describe("development server", () => {
   it("fails closed when embedded Checkout credentials are not configured", async () => {
     const app = createApp({ port: 4242, applicationBaseUrl: "http://127.0.0.1:4242" });
     expect((await request(app).get("/checkout/config")).status).toBe(503);
-    expect((await request(app).post("/checkout/confirm-intent").send({ confirmationTokenId: "ct_test_example" })).status).toBe(503);
+    expect((await request(app).post("/checkout/confirm-intent").send({ confirmationTokenId: "ct_test_example", customerEmail: "buyer@example.com" })).status).toBe(503);
   });
 
   it("rejects malformed ConfirmationToken IDs before calling Stripe", async () => {
@@ -62,9 +90,25 @@ describe("development server", () => {
 
     const response = await request(app)
       .post("/checkout/confirm-intent")
-      .send({ confirmationTokenId: "not-a-token" });
+      .send({ confirmationTokenId: "not-a-token", customerEmail: "buyer@example.com" });
 
     expect(response.status).toBe(400);
+  });
+
+  it("requires a valid fulfillment email before calling Stripe", async () => {
+    const app = createApp({
+      port: 4242,
+      applicationBaseUrl: "http://127.0.0.1:4242",
+      stripeApiKey: ["sk", "test", "unitvalue"].join("_"),
+      stripePublishableKey: ["pk", "test", "unitvalue"].join("_")
+    });
+
+    const response = await request(app)
+      .post("/checkout/confirm-intent")
+      .send({ confirmationTokenId: "ct_test_example", customerEmail: "not-an-email" });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toContain("valid customer email");
   });
 
   it("does not expose sandbox-only account routes in live mode", async () => {

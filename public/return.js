@@ -14,14 +14,27 @@ async function showStatus() {
     const paymentIntent = await response.json();
     if (!response.ok) throw new Error(paymentIntent.error ?? "Unable to retrieve payment status.");
 
-    if (paymentIntent.status === "succeeded") {
-      title.textContent = "Payment received";
-      message.textContent = "Your payment was completed successfully.";
-      return;
+    switch (paymentIntent.status) {
+      case "succeeded":
+        title.textContent = "Payment received";
+        message.textContent = "Your payment was completed. SET Business Consults will follow up using the email supplied at checkout.";
+        return;
+      case "processing":
+        title.textContent = "Payment processing";
+        message.textContent = "Stripe is still processing this payment. SET will begin fulfillment only after webhook confirmation.";
+        return;
+      case "requires_payment_method":
+        title.textContent = "Payment not completed";
+        message.textContent = "The payment method was not accepted. Return to checkout to try another card.";
+        return;
+      case "canceled":
+        title.textContent = "Payment canceled";
+        message.textContent = "This payment was canceled and no fulfillment will begin.";
+        return;
+      default:
+        title.textContent = "Payment awaiting completion";
+        message.textContent = "Additional payment steps may still be required. Return to checkout or contact SET Business Consults.";
     }
-
-    title.textContent = "Payment processing";
-    message.textContent = "Stripe is still processing this payment. Fulfillment begins only after webhook confirmation.";
   } catch (error) {
     title.textContent = "Payment status unavailable";
     message.textContent = error instanceof Error ? error.message : "Please contact SET Business Consults.";

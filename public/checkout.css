@@ -34,6 +34,9 @@ ul { margin: 0; padding-left: 20px; color: #dfe9e3; line-height: 2; }
 .payment-panel { min-height: 620px; }
 #checkout-loading { margin-top: 40px; color: #526059; }
 #payment-form { margin-top: 36px; }
+label { display: block; margin-bottom: 8px; color: #425149; font-size: 0.85rem; font-weight: 750; }
+input[type="email"] { width: 100%; margin-bottom: 24px; border: 1px solid #b8c0bc; border-radius: 10px; padding: 13px 14px; background: #fff; color: #17221d; font: inherit; }
+input[type="email"]:focus { outline: 3px solid rgb(201 124 78 / 28%); border-color: #c97c4e; }
 #contact-details-element, #payment-element { margin-bottom: 24px; }
 button {
   width: 100%;

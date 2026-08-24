@@ -27,7 +27,7 @@ describe("server-confirmed Payment Element", () => {
       store
     );
 
-    await integration.createAndConfirmPaymentIntent("ct_test_example", "checkout_retry_12345678");
+    await integration.createAndConfirmPaymentIntent("ct_test_example", "buyer@example.com", "checkout_retry_12345678");
 
     expect(create).toHaveBeenCalledOnce();
     const [params, options] = create.mock.calls[0]!;
@@ -37,6 +37,7 @@ describe("server-confirmed Payment Element", () => {
       allowed_payment_method_types: ["card"],
       confirm: true,
       confirmation_token: "ct_test_example",
+      receipt_email: "buyer@example.com",
       metadata: { seller: "SET Business Consults", offer: "workflow_improvement_review" }
     });
     expect(params).not.toHaveProperty("automatic_payment_methods");

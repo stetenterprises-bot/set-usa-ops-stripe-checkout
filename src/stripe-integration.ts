@@ -43,7 +43,7 @@ export function createStripeIntegration(
   store: StripeResourceStore
 ) {
   return {
-    async createAndConfirmPaymentIntent(confirmationTokenId: string, idempotencyKey: string) {
+    async createAndConfirmPaymentIntent(confirmationTokenId: string, customerEmail: string, idempotencyKey: string) {
       requireConfiguredKey(config);
       return stripe.paymentIntents.create(
         {
@@ -52,6 +52,7 @@ export function createStripeIntegration(
           allowed_payment_method_types: ["card"],
           confirm: true,
           confirmation_token: confirmationTokenId,
+          receipt_email: customerEmail,
           metadata: {
             seller: "SET Business Consults",
             offer: "workflow_improvement_review",

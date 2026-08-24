@@ -27,6 +27,8 @@
         <h2 id="payment-title">Payment details</h2>
         <div id="checkout-loading" role="status">Preparing secure payment details…</div>
         <form id="payment-form" hidden>
+          <label for="customer-email">Email for receipt and follow-up</label>
+          <input id="customer-email" name="email" type="email" autocomplete="email" maxlength="254" required>
           <div id="payment-element"></div>
           <button id="submit" type="submit">Pay $495</button>
           <p id="payment-message" role="alert" aria-live="polite"></p>
