@@ -1,0 +1,39 @@
+{
+  "name": "set-usa-ops-stripe-development",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Test-mode-only local Stripe development environment for SET Business Consults USA Ops.",
+  "type": "module",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/src/server.js",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "scan:secrets": "node scripts/check-secrets.mjs",
+    "verify": "npm run scan:secrets && npm run typecheck && npm test && npm run build",
+    "stripe:whoami": "stripe whoami --format json",
+    "stripe:docs:changelog": "stripe docs /changelog",
+    "stripe:webhooks": "stripe listen --forward-to localhost:4242/webhooks/stripe",
+    "stripe:smoke": "tsx scripts/stripe-smoke.ts"
+  },
+  "dependencies": {
+    "dotenv": "17.4.2",
+    "express": "5.2.1",
+    "mppx": "^0.8.19",
+    "stripe": "22.5.0"
+  },
+  "devDependencies": {
+    "@stripe/cli": "1.50.4",
+    "@types/express": "5.0.6",
+    "@types/node": "26.2.0",
+    "@types/supertest": "6.0.3",
+    "supertest": "7.1.4",
+    "tsx": "4.23.12",
+    "typescript": "7.0.2",
+    "vitest": "4.1.11"
+  }
+}

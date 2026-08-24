@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Workflow Improvement Review | SET Business Consults</title>
+    <link rel="stylesheet" href="/assets/checkout.css">
+    <script src="https://js.stripe.com/dahlia/stripe.js" defer></script>
+    <script src="/assets/checkout.js" defer></script>
+  </head>
+  <body>
+    <main class="checkout-shell">
+      <section class="summary" aria-labelledby="offer-title">
+        <p class="eyebrow">SET Business Consults</p>
+        <h1 id="offer-title">Workflow Improvement Review</h1>
+        <p class="description">A focused operational review with prioritized findings and next-step recommendations.</p>
+        <div class="price"><span>$495</span><span>USD · one time</span></div>
+        <ul>
+          <li>Current-workflow assessment</li>
+          <li>Prioritized improvement findings</li>
+          <li>Practical next-step recommendations</li>
+        </ul>
+      </section>
+
+      <section class="payment-panel" aria-labelledby="payment-title">
+        <p class="eyebrow">Secure checkout</p>
+        <h2 id="payment-title">Payment details</h2>
+        <div id="checkout-loading" role="status">Preparing Stripe Checkout…</div>
+        <form id="payment-form" hidden>
+          <div id="contact-details-element"></div>
+          <div id="payment-element"></div>
+          <button id="submit" type="submit">Pay $495</button>
+          <p id="payment-message" role="alert" aria-live="polite"></p>
+        </form>
+        <p class="security-note">Payment information is collected securely by Stripe and never passes through this server.</p>
+      </section>
+    </main>
+  </body>
+</html>
