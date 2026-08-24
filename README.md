@@ -15,7 +15,7 @@ Open `http://localhost:4242/health`. The server can run without Stripe credentia
 
 ## Server-confirmed Payment Element page
 
-`GET /checkout` serves a Payment Intents + Payment Element flow for the $495 Workflow Improvement Review. Stripe.js renders Elements before an Intent exists, creates a short-lived ConfirmationToken, and sends only that token ID to `POST /checkout/confirm-intent`. The server fixes the amount and currency, then creates and confirms the PaymentIntent in one idempotent request. It is direct SET billing: it does not use Connect, application fees, transfer fields, hard-coded payment methods, or automatic tax.
+`GET /checkout` serves a Payment Intents + Payment Element flow for the $495 Workflow Improvement Review. Stripe.js renders Elements before an Intent exists, creates a short-lived ConfirmationToken, and sends only that token ID to `POST /checkout/confirm-intent`. The server fixes the amount and currency, then creates and confirms the PaymentIntent in one idempotent request. The client and server both use an explicit card-only allowlist, so Stripe's dynamic payment-method selection is disabled for this flow. It is direct SET billing: it does not use Connect, application fees, transfer fields, Custom Payment Methods, or automatic tax.
 
 Configure a test restricted key and the matching test publishable key in the ignored `.env` file:
 

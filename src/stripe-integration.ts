@@ -49,6 +49,7 @@ export function createStripeIntegration(
         {
           amount: 49_500,
           currency: "usd",
+          allowed_payment_method_types: ["card"],
           confirm: true,
           confirmation_token: confirmationTokenId,
           metadata: {

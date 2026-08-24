@@ -34,11 +34,11 @@ describe("server-confirmed Payment Element", () => {
     expect(params).toMatchObject({
       amount: 49_500,
       currency: "usd",
+      allowed_payment_method_types: ["card"],
       confirm: true,
       confirmation_token: "ct_test_example",
       metadata: { seller: "SET Business Consults", offer: "workflow_improvement_review" }
     });
-    expect(params).not.toHaveProperty("payment_method_types");
     expect(params).not.toHaveProperty("automatic_payment_methods");
     expect(options).toEqual({ idempotencyKey: "checkout_retry_12345678" });
   });

@@ -19,6 +19,7 @@ async function initializeCheckout() {
       mode: "payment",
       amount: 49_500,
       currency: "usd",
+      paymentMethodTypes: ["card"],
       paymentMethodCreation: "manual",
       appearance: {
         theme: "stripe",
