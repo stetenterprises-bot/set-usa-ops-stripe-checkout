@@ -9,28 +9,49 @@
     "projectName": "Set Business Consults (USA Ops)"
   },
   "providers": {
-    "railway": {
-      "accountRequestId": "facctrq_61VHHb11BDN7pWLr716UcjNbUWSQa7IlJM6tWxM5IR56",
+    "render": {
+      "accountRequestId": "facctrq_61VHaaB6ZjWvJBgKx16UcjNbUWSQa7IlJM6tWxM5IF2e",
       "configuration": {},
-      "linkedAt": "2026-08-24T08:53:56.489Z",
-      "providerId": "prvdr_61UK2uWsoydL7tUBp57Fg",
-      "providerName": "Railway",
+      "linkedAt": "2026-08-25T05:10:20.827Z",
+      "providerId": "prvdr_61UVwArXdJpejOfkn5POi",
+      "providerName": "Render",
       "redirectUrl": null,
-      "requestedAt": "2026-08-24T08:53:56.489Z",
+      "requestedAt": "2026-08-25T05:10:20.827Z",
       "status": "complete"
     }
   },
   "resources": {
-    "railway-plan": {
+    "checkout-hosting": {
       "configuration": {},
-      "createdAt": "2026-08-24T08:53:57.753Z",
-      "lastRevealedAt": "2026-08-24T08:53:58.053Z",
-      "lastStatus": "complete",
-      "name": "railway-plan",
+      "createdAt": "2026-08-24T08:55:47.626Z",
+      "lastRevealedAt": null,
+      "lastStatus": "errored",
+      "name": "checkout-hosting",
       "providerId": "prvdr_61UK2uWsoydL7tUBp57Fg",
       "providerName": "Railway",
-      "resourceId": "fres_61VHHb30jyYFlchai16UcjNbUWSQa7IlJM6tWxM5I7aS",
-      "serviceId": "free"
+      "resourceId": "fres_61VHHcopYVpot0HgB16UcjNbUWSQa7IlJM6tWxM5IEro",
+      "serviceId": "hosting"
+    },
+    "mpp-hosting": {
+      "configuration": {
+        "name": "set-business-consults-mpp",
+        "repo": "https://github.com/stetenterprises-bot/set-usa-ops-stripe-checkout",
+        "branch": "release/live-checkout",
+        "runtime": "docker",
+        "docker_context": ".",
+        "dockerfile_path": "./Dockerfile",
+        "health_check_path": "/health",
+        "region": "ohio",
+        "auto_deploy": "yes"
+      },
+      "createdAt": "2026-08-25T05:23:01.097Z",
+      "lastRevealedAt": "2026-08-25T05:23:01.926Z",
+      "lastStatus": "complete",
+      "name": "mpp-hosting",
+      "providerId": "prvdr_61UVwArXdJpejOfkn5POi",
+      "providerName": "Render",
+      "resourceId": "fres_61VHamPbUegW4yjKH16UcjNbUWSQa7IlJM6tWxM5I6Vc",
+      "serviceId": "web-service"
     }
   },
   "activeEnvironment": "production"

@@ -3,29 +3,33 @@
   "providers": {
     "railway": {
       "name": "Railway"
+    },
+    "render": {
+      "name": "Render"
     }
   },
   "resources": {
-    "railway-plan": {
-      "name": "railway-plan",
+    "checkout-hosting": {
+      "name": "checkout-hosting",
       "providerName": "Railway",
-      "serviceId": "free"
+      "serviceId": "hosting"
+    },
+    "mpp-hosting": {
+      "name": "mpp-hosting",
+      "providerName": "Render",
+      "serviceId": "web-service"
     }
   },
   "environments": {
     "default": {
-      "output": ".env",
-      "resources": [
-        {
-          "resourceName": "railway-plan"
-        }
-      ]
+      "output": ".env.projects-default",
+      "resources": []
     },
     "production": {
       "output": ".env.production",
       "resources": [
         {
-          "resourceName": "railway-plan"
+          "resourceName": "mpp-hosting"
         }
       ]
     }
