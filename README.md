@@ -6,7 +6,7 @@ This Node.js and TypeScript service defaults to a local Stripe test environment.
 
 ```powershell
 npm install
-if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+if (-not (Test-Path .env.app)) { Copy-Item .env.example .env.app }
 npm run verify
 npm run dev
 ```
@@ -15,9 +15,17 @@ Open `http://localhost:4242/health`. The server can run without Stripe credentia
 
 ## Server-confirmed Payment Element page
 
-`GET /checkout` serves a Payment Intents + Payment Element flow for the $495 Workflow Improvement Review. Stripe.js renders Elements before an Intent exists, creates a short-lived ConfirmationToken, and sends its ID plus the buyer-supplied receipt/follow-up email to `POST /checkout/confirm-intent`. The server fixes the amount and currency, then creates and confirms the PaymentIntent in one idempotent request. The client and server both use the user-required explicit card-only allowlist, so Stripe's dynamic payment-method selection is disabled for this flow. It is direct SET billing: it does not use Connect, application fees, transfer fields, Custom Payment Methods, or automatic tax.
+The service exposes three Payment Intents + Payment Element offers:
 
-Configure a test restricted key and the matching test publishable key in the ignored `.env` file:
+- `GET /checkout` — $495 USD Workflow Improvement Review.
+- `GET /checkout/workflow-improvement-review-297-usd` — $297 USD version.
+- `GET /checkout/workflow-improvement-review-297-eur` — €297 EUR version.
+
+Stripe.js renders Elements before an Intent exists, creates a short-lived ConfirmationToken, and sends its ID plus the buyer-supplied receipt/follow-up email to the offer-specific server endpoint. The server owns the offer ID, amount, currency, and matching explicit payment-method allowlist, then creates and confirms the PaymentIntent in an idempotent request. Dynamic payment-method selection is disabled.
+
+The USD offers allow `card`, `cashapp`, `crypto`, `us_bank_account`, and `customer_balance`. Because bank-transfer customer balances require a Customer, the server creates an idempotent Customer and configures US bank-transfer funding for those offers. The EUR offer allows `card`, `bizum`, `eps`, `mb_way`, and `multibanco`. Cash App Pay is USD-only, and stablecoin payment presentment is USD unless Stripe separately grants private-preview currency support, so neither is included in the EUR allowlist. All three are direct SET billing: they do not use Connect, application fees, transfer fields, Custom Payment Methods, or automatic tax.
+
+Configure a test restricted key and the matching test publishable key in the ignored `.env.app` file:
 
 ```dotenv
 STRIPE_API_KEY=<least-privilege rk_test_... key>
@@ -25,7 +33,7 @@ STRIPE_PUBLISHABLE_KEY=<pk_test_... key>
 STRIPE_WEBHOOK_SECRET=<whsec_... from stripe listen>
 ```
 
-Then run `npm run dev` and open `http://localhost:4242/checkout`. Stripe returns to `/checkout/return` after any required customer action. The webhook verifies and classifies PaymentIntent lifecycle events, but durable automated fulfillment is not implemented; confirm `payment_intent.succeeded` in Stripe before beginning manual delivery.
+Then run `npm run dev` and open one of the checkout URLs above. Stripe returns to `/checkout/return` after any required customer action. ACH debit and customer-balance bank transfers can remain asynchronous. The webhook verifies and classifies PaymentIntent lifecycle events, but durable automated fulfillment is not implemented; confirm `payment_intent.succeeded` in Stripe before beginning manual delivery.
 
 ## $0.50 machine-payment API
 
@@ -49,7 +57,7 @@ npx mppx@latest validate http://localhost:4242
 
 ## Add test credentials
 
-Prefer a least-privilege test restricted key. Put credentials only in the ignored `.env` file:
+Prefer a least-privilege test restricted key. Put credentials only in the ignored `.env.app` file:
 
 ```dotenv
 STRIPE_API_KEY=<test restricted key>
@@ -58,7 +66,7 @@ STRIPE_PROFILE_ID=<profile_test_...>
 APPLICATION_BASE_URL=http://localhost:4242
 ```
 
-Never commit `.env`, log credentials, or put a secret/restricted key in browser code.
+Never commit `.env.app`, log credentials, or put a secret/restricted key in browser code. Keeping application credentials out of `.env` also prevents them from shadowing Stripe Projects CLI authentication.
 
 ## Production mode
 
@@ -73,7 +81,7 @@ npm run stripe:whoami
 npm run stripe:webhooks
 ```
 
-The webhook listener prints a local signing secret. Place it in `.env`, restart the server, and send test events through the CLI. Every incoming event is signature-verified before acknowledgement.
+The webhook listener prints a local signing secret. Place it in `.env.app`, restart the server, and send test events through the CLI. Every incoming event is signature-verified before acknowledgement.
 
 ## Read-only authenticated smoke test
 
@@ -96,7 +104,7 @@ git config core.hooksPath .githooks
 ## Development status
 
 - `[V]` Local configuration and tests pin API version `2026-07-29.dahlia`.
-- `[V]` Live credentials are accepted only when production mode, HTTPS, and the required Checkout and webhook configuration are all present; `.env` files are ignored.
+- `[V]` Live credentials are accepted only when production mode, HTTPS, and the required Checkout and webhook configuration are all present; `.env.app` and other `.env.*` files are ignored.
 - `[V]` Webhook requests fail closed unless the signature can be verified.
 - `[V]` The live SET account, production deployment, and dedicated PaymentIntent webhook endpoint were inspected on 2026-08-24.
 - `[D]` No live payment was submitted during implementation or verification. Fulfillment remains a manual, webhook-verified operating step until a durable reconciliation store is added.

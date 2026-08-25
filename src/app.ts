@@ -4,9 +4,20 @@ import { Mppx, discovery } from "mppx/express";
 import { stripe as stripeMachinePayments } from "mppx/server";
 import Stripe from "stripe";
 import { join } from "node:path";
-import { STRIPE_API_VERSION, type RuntimeConfig } from "./config.js";
+import {
+  PRIVY_API_BASE_URL,
+  PRIVY_BASE_CHAIN_ID,
+  STRIPE_API_VERSION,
+  type RuntimeConfig
+} from "./config.js";
 import { createStripeIntegration } from "./stripe-integration.js";
 import { createJsonResourceStore } from "./resource-store.js";
+import {
+  checkoutOfferClientConfig,
+  defaultCheckoutOfferId,
+  getCheckoutOffer,
+  type CheckoutOffer
+} from "./checkout-offers.js";
 
 const HANDLED_PAYMENT_INTENT_EVENTS = new Set([
   "payment_intent.created",
@@ -77,7 +88,13 @@ export function createApp(config: RuntimeConfig): express.Express {
       checkoutConfigured: Boolean(config.stripeApiKey && config.stripePublishableKey),
       webhookConfigured: Boolean(config.stripeWebhookSecret),
       mppConfigured: Boolean(paidApi),
-      mppPrice: { amount: "0.50", currency: "usd", unit: "api_call" }
+      mppPrice: { amount: "0.50", currency: "usd", unit: "api_call" },
+      privyConfigured: Boolean(config.privyAppId && config.privyAppSecret),
+      privy: {
+        apiBaseUrl: PRIVY_API_BASE_URL,
+        chain: "base",
+        chainId: PRIVY_BASE_CHAIN_ID
+      }
     });
   });
 
@@ -128,16 +145,32 @@ export function createApp(config: RuntimeConfig): express.Express {
     response.sendFile(join(publicDirectory, "checkout.html"));
   });
 
-  app.get("/checkout/config", (_request, response) => {
+  app.get("/checkout/:offerId", (request, response, next) => {
+    if (!getCheckoutOffer(request.params.offerId)) return next();
+    return response.sendFile(join(publicDirectory, "checkout.html"));
+  });
+
+  const sendCheckoutConfig = (offer: CheckoutOffer | undefined, response: Response) => {
     response.setHeader("Cache-Control", "no-store");
+    if (!offer) return response.status(404).json({ error: "Checkout offer not found." });
     if (!config.stripePublishableKey) {
       return response.status(503).json({ error: "Stripe checkout is not configured." });
     }
-    return response.json({ publishableKey: config.stripePublishableKey });
-  });
+    return response.json({
+      publishableKey: config.stripePublishableKey,
+      offer: checkoutOfferClientConfig(offer)
+    });
+  };
 
-  app.post("/checkout/confirm-intent", async (request, response) => {
+  app.get("/checkout/config", (_request, response) =>
+    sendCheckoutConfig(getCheckoutOffer(defaultCheckoutOfferId), response));
+
+  app.get("/checkout/:offerId/config", (request, response) =>
+    sendCheckoutConfig(getCheckoutOffer(request.params.offerId), response));
+
+  const confirmCheckoutIntent = async (offer: CheckoutOffer | undefined, request: Request, response: Response) => {
     response.setHeader("Cache-Control", "no-store");
+    if (!offer) return response.status(404).json({ error: "Checkout offer not found." });
     if (!integration || !config.stripePublishableKey) {
       return response.status(503).json({ error: "Stripe checkout credentials are not configured." });
     }
@@ -155,7 +188,12 @@ export function createApp(config: RuntimeConfig): express.Express {
     }
     const idempotencyKey = suppliedKey ?? `set-payment-intent-${crypto.randomUUID()}`;
     try {
-      const paymentIntent = await integration.createAndConfirmPaymentIntent(confirmationTokenId, customerEmail, idempotencyKey);
+      const paymentIntent = await integration.createAndConfirmPaymentIntent(
+        offer,
+        confirmationTokenId,
+        customerEmail,
+        idempotencyKey
+      );
       if (!paymentIntent.client_secret) {
         return response.status(502).json({ error: "Stripe did not return a PaymentIntent client secret." });
       }
@@ -167,7 +205,13 @@ export function createApp(config: RuntimeConfig): express.Express {
     } catch {
       return response.status(502).json({ error: "Stripe PaymentIntent confirmation failed." });
     }
-  });
+  };
+
+  app.post("/checkout/confirm-intent", (request, response) =>
+    confirmCheckoutIntent(getCheckoutOffer(defaultCheckoutOfferId), request, response));
+
+  app.post("/checkout/:offerId/confirm-intent", (request, response) =>
+    confirmCheckoutIntent(getCheckoutOffer(request.params.offerId), request, response));
 
   app.get("/checkout/payment-intent/:paymentIntentId", async (request, response) => {
     response.setHeader("Cache-Control", "no-store");

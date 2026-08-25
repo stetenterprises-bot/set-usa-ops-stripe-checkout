@@ -80,6 +80,43 @@ describe("development server", () => {
     expect((await request(app).post("/checkout/confirm-intent").send({ confirmationTokenId: "ct_test_example", customerEmail: "buyer@example.com" })).status).toBe(503);
   });
 
+  it("returns server-authoritative static offer configurations", async () => {
+    const app = createApp({
+      port: 4242,
+      applicationBaseUrl: "http://127.0.0.1:4242",
+      stripePublishableKey: ["pk", "test", "unitvalue"].join("_")
+    });
+
+    const usd = await request(app).get("/checkout/workflow-improvement-review-297-usd/config");
+    expect(usd.status).toBe(200);
+    expect(usd.body.offer).toEqual(expect.objectContaining({
+      amount: 29_700,
+      currency: "usd",
+      paymentMethodTypes: ["card", "cashapp", "crypto", "us_bank_account", "customer_balance"]
+    }));
+
+    const eur = await request(app).get("/checkout/workflow-improvement-review-297-eur/config");
+    expect(eur.status).toBe(200);
+    expect(eur.body.offer).toEqual(expect.objectContaining({
+      amount: 29_700,
+      currency: "eur",
+      paymentMethodTypes: ["card", "bizum", "eps", "mb_way", "multibanco"]
+    }));
+    expect(eur.body.offer.paymentMethodTypes).not.toContain("cashapp");
+    expect(eur.body.offer.paymentMethodTypes).not.toContain("crypto");
+  });
+
+  it("rejects unknown checkout offers", async () => {
+    const app = createApp({
+      port: 4242,
+      applicationBaseUrl: "http://127.0.0.1:4242",
+      stripePublishableKey: ["pk", "test", "unitvalue"].join("_")
+    });
+
+    expect((await request(app).get("/checkout/not-an-offer/config")).status).toBe(404);
+    expect((await request(app).post("/checkout/not-an-offer/confirm-intent").send({})).status).toBe(404);
+  });
+
   it("rejects malformed ConfirmationToken IDs before calling Stripe", async () => {
     const app = createApp({
       port: 4242,

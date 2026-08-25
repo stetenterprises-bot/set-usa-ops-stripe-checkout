@@ -1,6 +1,7 @@
 import Stripe from "stripe";
 import { randomBytes } from "node:crypto";
 import { type RuntimeConfig } from "./config.js";
+import { type CheckoutOffer } from "./checkout-offers.js";
 
 type PersistedStripeResources = {
   connectedAccountId?: string;
@@ -43,19 +44,42 @@ export function createStripeIntegration(
   store: StripeResourceStore
 ) {
   return {
-    async createAndConfirmPaymentIntent(confirmationTokenId: string, customerEmail: string, idempotencyKey: string) {
+    async createAndConfirmPaymentIntent(
+      offer: CheckoutOffer,
+      confirmationTokenId: string,
+      customerEmail: string,
+      idempotencyKey: string
+    ) {
       requireConfiguredKey(config);
+      const customer = offer.paymentMethodTypes.includes("customer_balance")
+        ? await stripe.customers.create(
+            {
+              email: customerEmail,
+              metadata: { checkout_offer: offer.id }
+            },
+            { idempotencyKey: `${idempotencyKey}-customer` }
+          )
+        : undefined;
       return stripe.paymentIntents.create(
         {
-          amount: 49_500,
-          currency: "usd",
-          allowed_payment_method_types: ["card"],
+          amount: offer.amount,
+          currency: offer.currency,
+          allowed_payment_method_types: [...offer.paymentMethodTypes],
           confirm: true,
           confirmation_token: confirmationTokenId,
           receipt_email: customerEmail,
+          ...(customer ? { customer: customer.id } : {}),
+          ...(offer.customerBalanceBankTransferType ? {
+            payment_method_options: {
+              customer_balance: {
+                funding_type: "bank_transfer",
+                bank_transfer: { type: offer.customerBalanceBankTransferType }
+              }
+            }
+          } : {}),
           metadata: {
             seller: "SET Business Consults",
-            offer: "workflow_improvement_review",
+            offer: offer.id,
             integration: `set_server_confirmed_${integrationIdentifierSuffix()}`
           }
         },

@@ -13,8 +13,8 @@
       <section class="summary" aria-labelledby="offer-title">
         <p class="eyebrow">SET Business Consults</p>
         <h1 id="offer-title">Workflow Improvement Review</h1>
-        <p class="description">A focused operational review with prioritized findings and next-step recommendations.</p>
-        <div class="price"><span>$495</span><span>USD · one time</span></div>
+        <p class="description" id="offer-description">A focused operational review with prioritized findings and next-step recommendations.</p>
+        <div class="price"><span id="offer-amount">—</span><span id="offer-currency">One-time payment</span></div>
         <ul>
           <li>Current-workflow assessment</li>
           <li>Prioritized improvement findings</li>
@@ -30,7 +30,7 @@
           <label for="customer-email">Email for receipt and follow-up</label>
           <input id="customer-email" name="email" type="email" autocomplete="email" maxlength="254" required>
           <div id="payment-element"></div>
-          <button id="submit" type="submit">Pay $495</button>
+          <button id="submit" type="submit">Pay securely</button>
           <p id="payment-message" role="alert" aria-live="polite"></p>
         </form>
         <p class="security-note">Payment information is collected securely by Stripe and never passes through this server.</p>

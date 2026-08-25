@@ -25,7 +25,7 @@ async function showStatus() {
         return;
       case "requires_payment_method":
         title.textContent = "Payment not completed";
-        message.textContent = "The payment method was not accepted. Return to checkout to try another card.";
+        message.textContent = "The payment method was not accepted. Return to checkout to try another available method.";
         return;
       case "canceled":
         title.textContent = "Payment canceled";

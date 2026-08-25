@@ -1,6 +1,14 @@
-import "dotenv/config";
+import { config as loadDotenv } from "dotenv";
+
+loadDotenv({
+  path: process.env.DOTENV_CONFIG_PATH ?? ".env.app",
+  quiet: true
+});
 
 export const STRIPE_API_VERSION = "2026-07-29.dahlia" as const;
+export const PRIVY_API_BASE_URL = "https://api.privy.io" as const;
+export const PRIVY_BASE_CHAIN_ID = 8453 as const;
+export const PRIVY_APP_ID = "cmt7hoxq900i20cl79s3r6sva" as const;
 
 export type RuntimeConfig = {
   port: number;
@@ -10,6 +18,8 @@ export type RuntimeConfig = {
   stripeWebhookSecret?: string;
   stripeProfileId?: string;
   mppSecretKey?: string;
+  privyAppId?: string;
+  privyAppSecret?: string;
   applicationBaseUrl: string;
 };
 
@@ -25,8 +35,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConfig 
   const stripeWebhookSecret = optionalSecret(env.STRIPE_WEBHOOK_SECRET);
   const stripeProfileId = optionalSecret(env.STRIPE_PROFILE_ID);
   const mppSecretKey = optionalSecret(env.MPP_SECRET_KEY);
+  const privyAppId = optionalSecret(env.PRIVY_APP_ID);
+  const privyAppSecret = optionalSecret(env.PRIVY_APP_SECRET);
   const applicationBaseUrl = optionalSecret(env.APPLICATION_BASE_URL) ?? "http://localhost:4242";
-  const port = Number(env.PORT ?? "4242");
+  const port = Number(optionalSecret(env.PORT) ?? "4242");
 
   if (stripeMode !== "test" && stripeMode !== "live") {
     throw new Error("STRIPE_MODE must be either test or live.");
@@ -58,6 +70,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConfig 
     throw new Error("STRIPE_API_KEY is required when STRIPE_PROFILE_ID is configured for MPP.");
   }
 
+  if (Boolean(privyAppId) !== Boolean(privyAppSecret)) {
+    throw new Error("PRIVY_APP_ID and PRIVY_APP_SECRET must be configured together.");
+  }
+
+  if (privyAppId && privyAppId !== PRIVY_APP_ID) {
+    throw new Error(`PRIVY_APP_ID must be the approved app ${PRIVY_APP_ID}.`);
+  }
+
   const parsedBaseUrl = new URL(applicationBaseUrl);
   if (stripeMode === "live") {
     if (env.NODE_ENV !== "production") {
@@ -82,6 +102,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConfig 
     ...(stripePublishableKey ? { stripePublishableKey } : {}),
     ...(stripeWebhookSecret ? { stripeWebhookSecret } : {}),
     ...(stripeProfileId ? { stripeProfileId } : {}),
-    ...(mppSecretKey ? { mppSecretKey } : {})
+    ...(mppSecretKey ? { mppSecretKey } : {}),
+    ...(privyAppId ? { privyAppId } : {}),
+    ...(privyAppSecret ? { privyAppSecret } : {})
   };
 }

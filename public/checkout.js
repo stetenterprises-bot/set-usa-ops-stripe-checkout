@@ -3,6 +3,19 @@ const form = document.querySelector("#payment-form");
 const submitButton = document.querySelector("#submit");
 const message = document.querySelector("#payment-message");
 const customerEmail = document.querySelector("#customer-email");
+const offerTitle = document.querySelector("#offer-title");
+const offerDescription = document.querySelector("#offer-description");
+const offerAmount = document.querySelector("#offer-amount");
+const offerCurrency = document.querySelector("#offer-currency");
+
+const checkoutBasePath = window.location.pathname.replace(/\/$/, "");
+
+function formattedAmount(amount, currency) {
+  return new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency: currency.toUpperCase()
+  }).format(amount / 100);
+}
 
 function showError(error) {
   message.textContent = error instanceof Error ? error.message : "Checkout could not be loaded. Please try again.";
@@ -11,16 +24,23 @@ function showError(error) {
 
 async function initializeCheckout() {
   try {
-    const configResponse = await fetch("/checkout/config");
+    const configResponse = await fetch(`${checkoutBasePath}/config`);
     if (!configResponse.ok) throw new Error("Stripe checkout is not configured.");
-    const { publishableKey } = await configResponse.json();
+    const { publishableKey, offer } = await configResponse.json();
+
+    offerTitle.textContent = offer.title;
+    offerDescription.textContent = offer.description;
+    offerAmount.textContent = formattedAmount(offer.amount, offer.currency);
+    offerCurrency.textContent = `${offer.currency.toUpperCase()} · one time`;
+    submitButton.textContent = `Pay ${formattedAmount(offer.amount, offer.currency)}`;
+    document.title = `${offer.title} | SET Business Consults`;
 
     const stripe = Stripe(publishableKey);
     const elements = stripe.elements({
       mode: "payment",
-      amount: 49_500,
-      currency: "usd",
-      paymentMethodTypes: ["card"],
+      amount: offer.amount,
+      currency: offer.currency,
+      paymentMethodTypes: offer.paymentMethodTypes,
       paymentMethodCreation: "manual",
       appearance: {
         theme: "stripe",
@@ -59,7 +79,7 @@ async function initializeCheckout() {
           customerEmail.disabled = true;
         }
 
-        const response = await fetch("/checkout/confirm-intent", {
+        const response = await fetch(`${checkoutBasePath}/confirm-intent`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",

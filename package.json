@@ -27,7 +27,7 @@
     "stripe": "22.5.0"
   },
   "devDependencies": {
-    "@stripe/cli": "1.50.4",
+    "@stripe/cli": "1.50.5",
     "@types/express": "5.0.6",
     "@types/node": "26.2.0",
     "@types/supertest": "6.0.3",

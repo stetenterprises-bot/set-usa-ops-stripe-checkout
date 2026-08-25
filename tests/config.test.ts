@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loadConfig, STRIPE_API_VERSION } from "../src/config.js";
+import { loadConfig, PRIVY_APP_ID, STRIPE_API_VERSION } from "../src/config.js";
 
 const key = (mode: "test" | "live", kind: "rk" | "sk") =>
   [kind, mode, "examplevalue"].join("_");
@@ -11,6 +11,10 @@ describe("local Stripe configuration", () => {
       stripeMode: "test",
       applicationBaseUrl: "http://localhost:4242"
     });
+  });
+
+  it("uses the default port when PORT is blank", () => {
+    expect(loadConfig({ PORT: "   " }).port).toBe(4242);
   });
 
   it("pins the target Stripe API version", () => {
@@ -77,5 +81,19 @@ describe("local Stripe configuration", () => {
 
   it("requires a strong explicit MPP signing secret", () => {
     expect(() => loadConfig({ MPP_SECRET_KEY: "too-short" })).toThrow(/at least 32 bytes/);
+  });
+
+  it("accepts only the approved Privy app with its backend secret", () => {
+    const config = loadConfig({
+      PRIVY_APP_ID,
+      PRIVY_APP_SECRET: "privy-test-secret"
+    });
+    expect(config.privyAppId).toBe(PRIVY_APP_ID);
+    expect(config.privyAppSecret).toBe("privy-test-secret");
+    expect(() => loadConfig({ PRIVY_APP_ID })).toThrow(/configured together/);
+    expect(() => loadConfig({
+      PRIVY_APP_ID: "different-app",
+      PRIVY_APP_SECRET: "privy-test-secret"
+    })).toThrow(/approved app/);
   });
 });
