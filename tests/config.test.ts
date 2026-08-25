@@ -48,10 +48,12 @@ describe("local Stripe configuration", () => {
       STRIPE_API_KEY: key("live", "rk"),
       STRIPE_PUBLISHABLE_KEY: ["pk", "live", "examplevalue"].join("_"),
       STRIPE_WEBHOOK_SECRET: ["whsec", "examplevalue"].join("_"),
+      STRIPE_PROFILE_ID: "profile_examplevalue",
       APPLICATION_BASE_URL: "https://checkout.example.com"
     });
 
     expect(config.stripeMode).toBe("live");
+    expect(config.stripeProfileId).toBe("profile_examplevalue");
     expect(config.applicationBaseUrl).toBe("https://checkout.example.com");
   });
 
@@ -72,11 +74,20 @@ describe("local Stripe configuration", () => {
     expect(() => loadConfig({ STRIPE_PROFILE_ID: "profile_test_examplevalue" })).toThrow(/required/);
   });
 
-  it("blocks live profile IDs", () => {
+  it("requires the MPP profile to match the configured Stripe mode", () => {
     expect(() => loadConfig({
       STRIPE_API_KEY: key("test", "sk"),
-      STRIPE_PROFILE_ID: "profile_live_examplevalue"
-    })).toThrow(/sandbox profile/);
+      STRIPE_PROFILE_ID: "profile_examplevalue"
+    })).toThrow(/STRIPE_MODE=test/);
+    expect(() => loadConfig({
+      NODE_ENV: "production",
+      STRIPE_MODE: "live",
+      STRIPE_API_KEY: key("live", "sk"),
+      STRIPE_PUBLISHABLE_KEY: ["pk", "live", "examplevalue"].join("_"),
+      STRIPE_WEBHOOK_SECRET: ["whsec", "examplevalue"].join("_"),
+      STRIPE_PROFILE_ID: "profile_test_examplevalue",
+      APPLICATION_BASE_URL: "https://checkout.example.com"
+    })).toThrow(/STRIPE_MODE=live/);
   });
 
   it("requires a strong explicit MPP signing secret", () => {

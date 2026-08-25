@@ -40,11 +40,11 @@ export function createApp(config: RuntimeConfig): express.Express {
   const stripe = config.stripeApiKey ? new Stripe(config.stripeApiKey, { apiVersion: STRIPE_API_VERSION }) : undefined;
   const integration = stripe ? createStripeIntegration(stripe, config, createJsonResourceStore(".data/stripe-resources.json")) : undefined;
   const testIntegration = stripeMode === "test" ? integration : undefined;
-  const machinePayments = stripeMode === "test" && stripe && config.stripeProfileId
+  const machinePayments = stripe && config.stripeProfileId
     ? stripeMachinePayments.create({
         client: stripe,
         networkId: config.stripeProfileId,
-        livemode: false,
+        livemode: stripeMode === "live",
         metadata: { integration: "set-usa-ops-mpp" }
       })
     : undefined;
@@ -268,7 +268,7 @@ export function createApp(config: RuntimeConfig): express.Express {
       response.status(503).json({ error: "MPP is not configured." });
     });
     app.post("/paid", (_request, response) => {
-      response.status(503).json({ error: "MPP sandbox credentials are not configured." });
+      response.status(503).json({ error: "MPP credentials are not configured." });
     });
   }
 

@@ -161,10 +161,12 @@ describe("development server", () => {
       applicationBaseUrl: "https://checkout.example.com",
       stripeApiKey: ["rk", "live", "unitvalue"].join("_"),
       stripePublishableKey: ["pk", "live", "unitvalue"].join("_"),
-      stripeWebhookSecret: ["whsec", "unitvalue"].join("_")
+      stripeWebhookSecret: ["whsec", "unitvalue"].join("_"),
+      stripeProfileId: "profile_unitvalue"
     });
 
     expect((await request(app).post("/stripe/accounts").send({ country: "US" })).status).toBe(404);
+    expect((await request(app).post("/paid").send({ prompt: "test" })).status).toBe(402);
   });
 
   it("challenges each paid API call for exactly 0.50 USD", async () => {

@@ -58,8 +58,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConfig 
     throw new Error(`STRIPE_PUBLISHABLE_KEY must match STRIPE_MODE=${stripeMode}.`);
   }
 
-  if (stripeProfileId && !stripeProfileId.startsWith("profile_test_")) {
-    throw new Error("STRIPE_PROFILE_ID must be a Stripe sandbox profile ID.");
+  const isSandboxProfile = stripeProfileId?.startsWith("profile_test_") ?? false;
+  const isLiveProfile = stripeProfileId?.startsWith("profile_") === true && !isSandboxProfile;
+  if (stripeProfileId && (stripeMode === "live" ? !isLiveProfile : !isSandboxProfile)) {
+    throw new Error(`STRIPE_PROFILE_ID must match STRIPE_MODE=${stripeMode}.`);
   }
 
   if (mppSecretKey && Buffer.byteLength(mppSecretKey, "utf8") < 32) {
@@ -88,9 +90,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConfig 
     }
     if (!stripeApiKey || !stripePublishableKey || !stripeWebhookSecret) {
       throw new Error("Live Checkout requires STRIPE_API_KEY, STRIPE_PUBLISHABLE_KEY, and STRIPE_WEBHOOK_SECRET.");
-    }
-    if (stripeProfileId) {
-      throw new Error("Stripe MPP profiles are disabled in live Checkout mode.");
     }
   }
 

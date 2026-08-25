@@ -39,15 +39,15 @@ Then run `npm run dev` and open one of the checkout URLs above. Stripe returns t
 
 `POST /paid` uses Stripe MPP to charge **$0.50 USD for every successful API call**. An unpaid request receives an HTTP 402 challenge; a caller with a valid Shared Payment Token retries the request and receives both the JSON result and an MPP payment receipt.
 
-The discovery document is available at `GET /openapi.json`. Configure a Stripe sandbox profile before starting the paid endpoint:
+The discovery document is available at `GET /openapi.json`. Configure a Stripe profile that matches the selected Stripe mode before starting the paid endpoint:
 
 ```dotenv
-STRIPE_API_KEY=<least-privilege sandbox restricted key>
-STRIPE_PROFILE_ID=<profile_test_... from the Stripe Dashboard>
+STRIPE_API_KEY=<least-privilege restricted key for the selected mode>
+STRIPE_PROFILE_ID=<profile_test_... for sandbox or profile_... for live mode>
 MPP_SECRET_KEY=<optional independent random secret of at least 32 bytes>
 ```
 
-If `MPP_SECRET_KEY` is omitted, the server derives a challenge-binding key from the Stripe sandbox key, following Stripe's Node guide. Live Stripe keys and live profile IDs remain blocked in this local project.
+If `MPP_SECRET_KEY` is omitted, the server derives a challenge-binding key from the matching Stripe key, following Stripe's Node guide. Live MPP also requires the production configuration described below; a successful live validator round trip moves real funds.
 
 Run the MPP validator while the server is listening:
 
@@ -70,7 +70,7 @@ Never commit `.env.app`, log credentials, or put a secret/restricted key in brow
 
 ## Production mode
 
-Production requires `NODE_ENV=production`, `STRIPE_MODE=live`, an HTTPS `APPLICATION_BASE_URL`, matching live API and publishable keys, and a live webhook signing secret. Sandbox-only MPP, connected-account, balance-payment, and subscription-development routes return `404` in live mode. Store production secrets in the hosting provider's encrypted environment configuration, not in this repository.
+Production requires `NODE_ENV=production`, `STRIPE_MODE=live`, an HTTPS `APPLICATION_BASE_URL`, matching live API and publishable keys, and a live webhook signing secret. Add the matching live `STRIPE_PROFILE_ID` to enable MPP. Connected-account, balance-payment, and subscription-development routes remain sandbox-only and return `404` in live mode. Store production secrets in the hosting provider's encrypted environment configuration, not in this repository.
 
 ## Stripe CLI
 
