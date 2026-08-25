@@ -16,7 +16,13 @@ describe("development server", () => {
       checkoutConfigured: false,
       webhookConfigured: false,
       mppConfigured: false,
-      mppPrice: { amount: "0.50", currency: "usd", unit: "api_call" }
+      mppPrice: { amount: "0.50", currency: "usd", unit: "api_call" },
+      privyConfigured: false,
+      privy: {
+        apiBaseUrl: "https://api.privy.io",
+        chain: "base",
+        chainId: 8453
+      }
     });
   });
 
