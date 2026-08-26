@@ -2,6 +2,10 @@ import request from "supertest";
 import Stripe from "stripe";
 import { describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/app.js";
+import {
+  InMemoryStripeAppEventStore,
+  PostgresStripeAppEventStore
+} from "../src/stripe-app.js";
 
 describe("development server", () => {
   it("reports test-only readiness without exposing secrets", async () => {
@@ -186,5 +190,128 @@ describe("development server", () => {
     expect(encodedRequest).toBeDefined();
     const paymentRequest = JSON.parse(Buffer.from(encodedRequest!, "base64url").toString("utf8"));
     expect(paymentRequest).toMatchObject({ amount: "50", currency: "usd" });
+  });
+
+  it("verifies signed Stripe App drawer requests and returns only readiness gates", async () => {
+    const signingSecret = "absec_unitvalue";
+    const payload = JSON.stringify({ user_id: "usr_test", account_id: "acct_test" });
+    const signature = Stripe.webhooks.generateTestHeaderString({ payload, secret: signingSecret });
+    const response = await request(createApp({
+      port: 4242,
+      applicationBaseUrl: "http://127.0.0.1:4242",
+      stripeAppSigningSecret: signingSecret,
+      stripeAppWebhookSecret: ["whsec", "app", "unitvalue"].join("_")
+    }))
+      .post("/stripe-app/readiness")
+      .set("stripe-signature", signature)
+      .send({ user_id: "usr_test", account_id: "acct_test" });
+
+    expect(response.status).toBe(200);
+    expect(response.headers["access-control-allow-origin"]).toBe("*");
+    expect(response.body).toEqual({
+      ok: true,
+      mppConfigured: false,
+      privyConfigured: false,
+      checkoutConfigured: false,
+      paymentWebhookConfigured: false,
+      appEventsConfigured: true,
+      durableEventStoreConfigured: false,
+      executionAuthorized: false
+    });
+  });
+
+  it("fails closed for unsigned or invalid Stripe App drawer requests", async () => {
+    const app = createApp({
+      port: 4242,
+      applicationBaseUrl: "http://127.0.0.1:4242",
+      stripeAppSigningSecret: "absec_unitvalue"
+    });
+    expect((await request(app).post("/stripe-app/readiness").send({})).status).toBe(400);
+    expect((await request(app)
+      .post("/stripe-app/readiness")
+      .set("stripe-signature", "invalid")
+      .send({ user_id: "usr_test", account_id: "acct_test" })).status).toBe(401);
+  });
+
+  it("verifies Stripe App connected-account events and suppresses duplicate reactions", async () => {
+    const webhookSecret = ["whsec", "app", "unitvalue"].join("_");
+    const payload = JSON.stringify({
+      id: "evt_app_succeeded",
+      object: "event",
+      type: "payment_intent.succeeded",
+      account: "acct_installer",
+      livemode: false,
+      data: { object: { id: "pi_app_succeeded", object: "payment_intent", status: "succeeded" } }
+    });
+    const signature = Stripe.webhooks.generateTestHeaderString({ payload, secret: webhookSecret });
+    const app = createApp({
+      port: 4242,
+      applicationBaseUrl: "http://127.0.0.1:4242",
+      stripeAppWebhookSecret: webhookSecret
+    });
+    const first = await request(app)
+      .post("/stripe-app/events")
+      .set("content-type", "application/json")
+      .set("stripe-signature", signature)
+      .send(payload);
+    const duplicate = await request(app)
+      .post("/stripe-app/events")
+      .set("content-type", "application/json")
+      .set("stripe-signature", signature)
+      .send(payload);
+
+    expect(first.body).toMatchObject({ received: true, handled: true, duplicate: false });
+    expect(duplicate.body).toMatchObject({ received: true, handled: true, duplicate: true });
+  });
+
+  it("suppresses duplicate Stripe App reactions across app instances sharing durable storage", async () => {
+    const webhookSecret = ["whsec", "app", "multiinstance"].join("_");
+    const payload = JSON.stringify({
+      id: "evt_app_multiinstance",
+      object: "event",
+      type: "payment_intent.succeeded",
+      account: "acct_installer",
+      livemode: false,
+      data: { object: { id: "pi_app_multiinstance", object: "payment_intent", status: "succeeded" } }
+    });
+    const signature = Stripe.webhooks.generateTestHeaderString({ payload, secret: webhookSecret });
+    const sharedStore = new InMemoryStripeAppEventStore();
+    const config = {
+      port: 4242,
+      applicationBaseUrl: "http://127.0.0.1:4242",
+      stripeAppWebhookSecret: webhookSecret
+    };
+    const first = await request(createApp(config, { stripeAppEventStore: sharedStore }))
+      .post("/stripe-app/events")
+      .set("content-type", "application/json")
+      .set("stripe-signature", signature)
+      .send(payload);
+    const duplicate = await request(createApp(config, { stripeAppEventStore: sharedStore }))
+      .post("/stripe-app/events")
+      .set("content-type", "application/json")
+      .set("stripe-signature", signature)
+      .send(payload);
+
+    expect(first.body.duplicate).toBe(false);
+    expect(duplicate.body.duplicate).toBe(true);
+  });
+
+  it("uses an atomic PostgreSQL insert to claim event IDs", async () => {
+    const query = vi.fn()
+      .mockResolvedValueOnce({ rowCount: null })
+      .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rowCount: 0 });
+    const store = new PostgresStripeAppEventStore({ query } as never);
+    const event = {
+      eventId: "evt_atomic",
+      eventType: "payment_intent.succeeded",
+      accountId: "acct_installer",
+      livemode: false
+    };
+
+    expect(await store.claim(event)).toBe(true);
+    expect(await store.claim(event)).toBe(false);
+    expect(query).toHaveBeenCalledTimes(3);
+    expect(query.mock.calls[1]?.[0]).toContain("ON CONFLICT (event_id) DO NOTHING");
   });
 });

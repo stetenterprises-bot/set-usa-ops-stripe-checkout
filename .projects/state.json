@@ -1,6 +1,9 @@
 {
   "version": 1,
   "providers": {
+    "privy": {
+      "name": "Privy"
+    },
     "railway": {
       "name": "Railway"
     },
@@ -9,6 +12,11 @@
     }
   },
   "resources": {
+    "agentic-events-db": {
+      "name": "agentic-events-db",
+      "providerName": "Render",
+      "serviceId": "postgres"
+    },
     "checkout-hosting": {
       "name": "checkout-hosting",
       "providerName": "Railway",
@@ -28,6 +36,9 @@
     "production": {
       "output": ".env.production",
       "resources": [
+        {
+          "resourceName": "agentic-events-db"
+        },
         {
           "resourceName": "mpp-hosting"
         }

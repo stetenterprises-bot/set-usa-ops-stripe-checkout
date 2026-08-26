@@ -9,6 +9,18 @@
     "projectName": "Set Business Consults (USA Ops)"
   },
   "providers": {
+    "privy": {
+      "accountRequestId": "facctrq_61VHtss2xJj85VY6B16UcjNbUWSQa7IlJM6tWxM5I2HQ",
+      "configuration": {
+        "account_name": "Set Business Consults"
+      },
+      "linkedAt": "2026-08-26T01:46:56.723Z",
+      "providerId": "prvdr_61UWLVjDZyzuP1BCY5EAi",
+      "providerName": "Privy",
+      "redirectUrl": null,
+      "requestedAt": "2026-08-26T01:46:56.723Z",
+      "status": "complete"
+    },
     "render": {
       "accountRequestId": "facctrq_61VHaaB6ZjWvJBgKx16UcjNbUWSQa7IlJM6tWxM5IF2e",
       "configuration": {},
@@ -21,6 +33,21 @@
     }
   },
   "resources": {
+    "agentic-events-db": {
+      "configuration": {
+        "name": "set-agentic-events",
+        "region": "ohio",
+        "version": "18"
+      },
+      "createdAt": "2026-08-26T18:34:19.717Z",
+      "lastRevealedAt": "2026-08-26T18:34:24.932Z",
+      "lastStatus": "complete",
+      "name": "agentic-events-db",
+      "providerId": "prvdr_61UVwArXdJpejOfkn5POi",
+      "providerName": "Render",
+      "resourceId": "fres_61VI9bjwVZqVDKYoc16UcjNbUWSQa7IlJM6tWxM5IDsO",
+      "serviceId": "postgres"
+    },
     "checkout-hosting": {
       "configuration": {},
       "createdAt": "2026-08-24T08:55:47.626Z",

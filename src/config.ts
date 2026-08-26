@@ -16,6 +16,9 @@ export type RuntimeConfig = {
   stripeApiKey?: string;
   stripePublishableKey?: string;
   stripeWebhookSecret?: string;
+  stripeAppSigningSecret?: string;
+  stripeAppWebhookSecret?: string;
+  agenticEventsDatabaseUrl?: string;
   stripeProfileId?: string;
   mppSecretKey?: string;
   privyAppId?: string;
@@ -33,6 +36,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConfig 
   const stripeApiKey = optionalSecret(env.STRIPE_API_KEY);
   const stripePublishableKey = optionalSecret(env.STRIPE_PUBLISHABLE_KEY);
   const stripeWebhookSecret = optionalSecret(env.STRIPE_WEBHOOK_SECRET);
+  const stripeAppSigningSecret = optionalSecret(env.STRIPE_APP_SIGNING_SECRET);
+  const stripeAppWebhookSecret = optionalSecret(env.STRIPE_APP_WEBHOOK_SECRET);
+  const agenticEventsDatabaseUrl = optionalSecret(env.AGENTIC_EVENTS_DB_URL);
   const stripeProfileId = optionalSecret(env.STRIPE_PROFILE_ID);
   const mppSecretKey = optionalSecret(env.MPP_SECRET_KEY);
   const privyAppId = optionalSecret(env.PRIVY_APP_ID);
@@ -76,6 +82,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConfig 
     throw new Error("PRIVY_APP_ID and PRIVY_APP_SECRET must be configured together.");
   }
 
+  if (agenticEventsDatabaseUrl) {
+    const databaseUrl = new URL(agenticEventsDatabaseUrl);
+    if (databaseUrl.protocol !== "postgres:" && databaseUrl.protocol !== "postgresql:") {
+      throw new Error("AGENTIC_EVENTS_DB_URL must be a PostgreSQL connection URL.");
+    }
+  }
+
+  if (stripeMode === "live" && stripeAppWebhookSecret && !agenticEventsDatabaseUrl) {
+    throw new Error("Live Stripe App events require AGENTIC_EVENTS_DB_URL for durable deduplication.");
+  }
+
   if (privyAppId && privyAppId !== PRIVY_APP_ID) {
     throw new Error(`PRIVY_APP_ID must be the approved app ${PRIVY_APP_ID}.`);
   }
@@ -100,6 +117,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConfig 
     ...(stripeApiKey ? { stripeApiKey } : {}),
     ...(stripePublishableKey ? { stripePublishableKey } : {}),
     ...(stripeWebhookSecret ? { stripeWebhookSecret } : {}),
+    ...(stripeAppSigningSecret ? { stripeAppSigningSecret } : {}),
+    ...(stripeAppWebhookSecret ? { stripeAppWebhookSecret } : {}),
+    ...(agenticEventsDatabaseUrl ? { agenticEventsDatabaseUrl } : {}),
     ...(stripeProfileId ? { stripeProfileId } : {}),
     ...(mppSecretKey ? { mppSecretKey } : {}),
     ...(privyAppId ? { privyAppId } : {}),

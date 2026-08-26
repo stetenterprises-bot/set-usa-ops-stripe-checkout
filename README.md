@@ -55,6 +55,51 @@ Run the MPP validator while the server is listening:
 npx mppx@latest validate http://localhost:4242
 ```
 
+## MCP tools for GPT and other agent clients
+
+The service exposes a stateless Streamable HTTP MCP endpoint at `POST /mcp`. It is intentionally tool-only so the same contract works across ChatGPT, Codex, and other MCP-compatible hosts while the Stripe App supplies the Dashboard UI.
+
+Current tools are read-only:
+
+- `get_commerce_readiness` — returns non-secret MPP and Privy configuration gates.
+- `prepare_crypto_acquisition` — normalizes a complete intake packet and returns the next confirmation gate.
+
+Both tools declare read-only, non-destructive, idempotent annotations and return `executionAuthorized: false`. They cannot create a wallet, Onramp session, payment, approval, signature, swap, provider account, plan, or app resource.
+
+After starting the server locally, run an MCP client or Inspector against:
+
+```text
+http://127.0.0.1:4242/mcp
+```
+
+The production plugin endpoint is:
+
+```text
+https://set-business-consults-mpp.onrender.com/mcp
+```
+
+Do not enable the installed plugin's remote MCP entry until the deployment containing `/mcp` is live and a fresh remote tool-list check succeeds.
+
+## Stripe Dashboard app
+
+The generated public Stripe App is in `set-agentic-commerce-app`. It provides a global Dashboard drawer at `stripe.dashboard.drawer.default`, uses signed requests to `/stripe-app/readiness`, and prepares `/stripe-app/events` for app-installation and PaymentIntent lifecycle events from installing merchants.
+
+Local verification:
+
+```powershell
+Set-Location .\set-agentic-commerce-app
+pnpm build
+pnpm test
+pnpm lint
+npx stripe apps start --non-interactive
+```
+
+If `pnpm` is not installed globally, run the same commands through an ephemeral pinned CLI, for example `npx -y pnpm@10.17.1 build`. This does not require a global pnpm installation.
+
+Connected-account app events are claimed in PostgreSQL through `AGENTIC_EVENTS_DB_URL`. The event ID is the table primary key and the handler uses one atomic `INSERT ... ON CONFLICT DO NOTHING RETURNING` operation, so multiple service instances cannot react to the same verified Stripe event. A database failure returns HTTP 503 so Stripe can retry delivery.
+
+Stripe generates the signing secret required by `fetchStripeSignature` only during the first `stripe apps upload`; keep that value and the connected-account webhook signing secret only in encrypted production configuration.
+
 ## Add test credentials
 
 Prefer a least-privilege test restricted key. Put credentials only in the ignored `.env.app` file:

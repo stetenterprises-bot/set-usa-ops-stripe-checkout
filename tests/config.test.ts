@@ -107,4 +107,32 @@ describe("local Stripe configuration", () => {
       PRIVY_APP_SECRET: "privy-test-secret"
     })).toThrow(/approved app/);
   });
+
+  it("loads Stripe App verification secrets without exposing them elsewhere", () => {
+    const config = loadConfig({
+      STRIPE_APP_SIGNING_SECRET: "absec_examplevalue",
+      STRIPE_APP_WEBHOOK_SECRET: ["whsec", "app", "examplevalue"].join("_")
+    });
+    expect(config.stripeAppSigningSecret).toBe("absec_examplevalue");
+    expect(config.stripeAppWebhookSecret).toBe(["whsec", "app", "examplevalue"].join("_"));
+  });
+
+  it("requires PostgreSQL-backed Stripe App event claims in live mode", () => {
+    expect(() => loadConfig({
+      NODE_ENV: "production",
+      STRIPE_MODE: "live",
+      STRIPE_API_KEY: key("live", "rk"),
+      STRIPE_PUBLISHABLE_KEY: ["pk", "live", "examplevalue"].join("_"),
+      STRIPE_WEBHOOK_SECRET: ["whsec", "examplevalue"].join("_"),
+      STRIPE_APP_WEBHOOK_SECRET: ["whsec", "app", "examplevalue"].join("_"),
+      APPLICATION_BASE_URL: "https://checkout.example.com"
+    })).toThrow(/AGENTIC_EVENTS_DB_URL/);
+
+    const config = loadConfig({
+      AGENTIC_EVENTS_DB_URL: "postgresql://user:password@database.example.com/set_events"
+    });
+    expect(config.agenticEventsDatabaseUrl).toContain("database.example.com");
+    expect(() => loadConfig({ AGENTIC_EVENTS_DB_URL: "https://database.example.com" }))
+      .toThrow(/PostgreSQL/);
+  });
 });

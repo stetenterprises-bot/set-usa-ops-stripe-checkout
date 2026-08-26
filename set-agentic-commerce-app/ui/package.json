@@ -1,0 +1,28 @@
+{
+  "dependencies": {
+    "@stripe/ui-extension-sdk": "^9.2.0",
+    "stripe": "^22.3.0"
+  },
+  "description": "SET Agentic Commerce",
+  "devDependencies": {
+    "@stripe/ui-extension-tools": "^0.1.0",
+    "@types/jest": "^29.5.14",
+    "@types/react": "^18.3.1",
+    "eslint": "^9.39.4",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.4.11",
+    "typescript": "^5.9.2"
+  },
+  "engines": {
+    "node": ">=14"
+  },
+  "license": "~~proprietary~~",
+  "name": "set-agentic-commerce-ui",
+  "private": true,
+  "scripts": {
+    "build": "tsc --noEmit",
+    "lint": "eslint --ext ts,tsx src",
+    "test": "jest --passWithNoTests"
+  },
+  "version": "0.0.1"
+}

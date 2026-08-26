@@ -21,15 +21,19 @@
     "stripe:smoke": "tsx scripts/stripe-smoke.ts"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "dotenv": "17.4.2",
     "express": "5.2.1",
     "mppx": "^0.8.19",
-    "stripe": "22.5.0"
+    "pg": "^8.23.0",
+    "stripe": "22.5.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@stripe/cli": "1.50.5",
     "@types/express": "5.0.6",
     "@types/node": "26.2.0",
+    "@types/pg": "^8.23.1",
     "@types/supertest": "6.0.3",
     "supertest": "7.1.4",
     "tsx": "4.23.12",

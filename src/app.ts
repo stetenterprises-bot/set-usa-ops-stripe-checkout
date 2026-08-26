@@ -18,6 +18,13 @@ import {
   getCheckoutOffer,
   type CheckoutOffer
 } from "./checkout-offers.js";
+import { registerMcpRoutes } from "./mcp.js";
+import {
+  PostgresStripeAppEventStore,
+  registerStripeAppUiRoutes,
+  registerStripeAppWebhookRoute,
+  type StripeAppEventStore
+} from "./stripe-app.js";
 
 const HANDLED_PAYMENT_INTENT_EVENTS = new Set([
   "payment_intent.created",
@@ -34,7 +41,11 @@ function normalizedEmail(value: unknown): string | null {
   return email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : null;
 }
 
-export function createApp(config: RuntimeConfig): express.Express {
+export type AppDependencies = {
+  stripeAppEventStore?: StripeAppEventStore;
+};
+
+export function createApp(config: RuntimeConfig, dependencies: AppDependencies = {}): express.Express {
   const app = express();
   const stripeMode = config.stripeMode ?? "test";
   const stripe = config.stripeApiKey ? new Stripe(config.stripeApiKey, { apiVersion: STRIPE_API_VERSION }) : undefined;
@@ -138,7 +149,15 @@ export function createApp(config: RuntimeConfig): express.Express {
     }
   );
 
+  const stripeAppEventStore = dependencies.stripeAppEventStore
+    ?? (config.agenticEventsDatabaseUrl
+      ? new PostgresStripeAppEventStore(config.agenticEventsDatabaseUrl)
+      : undefined);
+  registerStripeAppWebhookRoute(app, config, stripeAppEventStore);
+
   app.use(express.json({ limit: "100kb" }));
+  registerMcpRoutes(app, config);
+  registerStripeAppUiRoutes(app, config);
   app.use("/assets", express.static(publicDirectory, { index: false, fallthrough: false }));
 
   app.get("/checkout", (_request, response) => {
