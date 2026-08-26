@@ -25,14 +25,16 @@ import {
   registerStripeAppWebhookRoute,
   type StripeAppEventStore
 } from "./stripe-app.js";
+import { createEmbeddedOnrampSession, onrampPairs, validateOnrampRequest } from "./onramp.js";
 
-const HANDLED_PAYMENT_INTENT_EVENTS = new Set([
+const HANDLED_STRIPE_EVENTS = new Set([
   "payment_intent.created",
   "payment_intent.requires_action",
   "payment_intent.processing",
   "payment_intent.succeeded",
   "payment_intent.payment_failed",
-  "payment_intent.canceled"
+  "payment_intent.canceled",
+  "crypto.onramp_session.updated"
 ]);
 
 function normalizedEmail(value: unknown): string | null {
@@ -47,9 +49,14 @@ export type AppDependencies = {
 
 export function createApp(config: RuntimeConfig, dependencies: AppDependencies = {}): express.Express {
   const app = express();
+  app.set("trust proxy", 1);
   const stripeMode = config.stripeMode ?? "test";
   const stripe = config.stripeApiKey ? new Stripe(config.stripeApiKey, { apiVersion: STRIPE_API_VERSION }) : undefined;
   const integration = stripe ? createStripeIntegration(stripe, config, createJsonResourceStore(".data/stripe-resources.json")) : undefined;
+  const stripeEventStore = dependencies.stripeAppEventStore
+    ?? (config.agenticEventsDatabaseUrl
+      ? new PostgresStripeAppEventStore(config.agenticEventsDatabaseUrl)
+      : undefined);
   const testIntegration = stripeMode === "test" ? integration : undefined;
   const machinePayments = stripe && config.stripeProfileId
     ? stripeMachinePayments.create({
@@ -83,7 +90,7 @@ export function createApp(config: RuntimeConfig, dependencies: AppDependencies =
   app.use((_request, response, next) => {
     response.setHeader(
       "Content-Security-Policy",
-      "default-src 'self'; script-src 'self' https://js.stripe.com; frame-src https://js.stripe.com https://hooks.stripe.com https://*.link.com; connect-src 'self' https://api.stripe.com https://*.stripe.com https://*.link.com; img-src 'self' data: https://*.stripe.com https://*.link.com; style-src 'self'; font-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+      "default-src 'self'; script-src 'self' https://js.stripe.com https://crypto-js.stripe.com; frame-src https://js.stripe.com https://hooks.stripe.com https://crypto-js.stripe.com https://*.stripe.com https://*.link.com; connect-src 'self' https://api.stripe.com https://crypto-js.stripe.com https://*.stripe.com https://*.link.com; img-src 'self' data: https://*.stripe.com https://*.link.com; style-src 'self'; font-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
     );
     response.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
     response.setHeader("X-Content-Type-Options", "nosniff");
@@ -98,6 +105,7 @@ export function createApp(config: RuntimeConfig, dependencies: AppDependencies =
       stripeConfigured: Boolean(config.stripeApiKey),
       checkoutConfigured: Boolean(config.stripeApiKey && config.stripePublishableKey),
       webhookConfigured: Boolean(config.stripeWebhookSecret),
+      cryptoOnrampConfigured: Boolean(config.stripeApiKey && config.stripePublishableKey && config.stripeWebhookSecret && config.agenticEventsDatabaseUrl),
       mppConfigured: Boolean(paidApi),
       mppPrice: { amount: "0.50", currency: "usd", unit: "api_call" },
       privyConfigured: Boolean(config.privyAppId && config.privyAppSecret),
@@ -112,7 +120,7 @@ export function createApp(config: RuntimeConfig, dependencies: AppDependencies =
   app.post(
     "/webhooks/stripe",
     express.raw({ type: "application/json", limit: "1mb" }),
-    (request: Request, response: Response) => {
+    async (request: Request, response: Response) => {
       if (!config.stripeWebhookSecret) {
         response.status(503).json({ error: "Stripe webhook verification is not configured." });
         return;
@@ -131,8 +139,13 @@ export function createApp(config: RuntimeConfig, dependencies: AppDependencies =
           config.stripeWebhookSecret
         );
 
-        const handled = HANDLED_PAYMENT_INTENT_EVENTS.has(event.type);
-        if (handled) {
+        const eventType = event.type as string;
+        const handled = HANDLED_STRIPE_EVENTS.has(eventType);
+        const claimed = handled && stripeEventStore
+          ? await stripeEventStore.claim({ eventId: event.id, eventType: event.type, accountId: event.account ?? null, livemode: event.livemode })
+          : handled;
+        const duplicate = handled && !claimed;
+        if (claimed && eventType.startsWith("payment_intent.")) {
           const paymentIntent = event.data.object as Stripe.PaymentIntent;
           console.info(JSON.stringify({
             kind: "stripe_payment_intent_event",
@@ -141,19 +154,25 @@ export function createApp(config: RuntimeConfig, dependencies: AppDependencies =
             paymentIntentId: paymentIntent.id,
             status: paymentIntent.status
           }));
+        } else if (claimed && eventType === "crypto.onramp_session.updated") {
+          const onrampSession = event.data.object as unknown as { id: string; status?: string; transaction_details?: { transaction_id?: string | null } };
+          console.info(JSON.stringify({
+            kind: "stripe_crypto_onramp_event",
+            eventId: event.id,
+            eventType,
+            onrampSessionId: onrampSession.id,
+            status: onrampSession.status ?? null,
+            transactionId: onrampSession.transaction_details?.transaction_id ?? null
+          }));
         }
-        response.status(200).json({ received: true, handled, eventId: event.id, eventType: event.type });
+        response.status(200).json({ received: true, handled, duplicate, eventId: event.id, eventType: event.type });
       } catch {
         response.status(400).json({ error: "Invalid Stripe webhook signature." });
       }
     }
   );
 
-  const stripeAppEventStore = dependencies.stripeAppEventStore
-    ?? (config.agenticEventsDatabaseUrl
-      ? new PostgresStripeAppEventStore(config.agenticEventsDatabaseUrl)
-      : undefined);
-  registerStripeAppWebhookRoute(app, config, stripeAppEventStore);
+  registerStripeAppWebhookRoute(app, config, stripeEventStore);
 
   app.use(express.json({ limit: "100kb" }));
   registerMcpRoutes(app, config);
@@ -253,6 +272,39 @@ export function createApp(config: RuntimeConfig, dependencies: AppDependencies =
 
   app.get("/checkout/return", (_request, response) => {
     response.sendFile(join(publicDirectory, "return.html"));
+  });
+
+  app.get("/crypto-fiat", (_request, response) => {
+    response.sendFile(join(publicDirectory, "crypto-fiat.html"));
+  });
+
+  app.get("/crypto-fiat/config", (_request, response) => {
+    response.setHeader("Cache-Control", "no-store");
+    if (!config.stripePublishableKey || !config.stripeApiKey || !config.stripeWebhookSecret || !config.agenticEventsDatabaseUrl) {
+      return response.status(503).json({ error: "Stripe Embedded Onramp is awaiting complete production configuration." });
+    }
+    return response.json({ publishableKey: config.stripePublishableKey, mode: stripeMode, country: "US", pairs: onrampPairs() });
+  });
+
+  app.post("/crypto-fiat/session", async (request, response) => {
+    response.setHeader("Cache-Control", "no-store");
+    if (!stripe || !config.stripePublishableKey || !config.stripeWebhookSecret || !config.agenticEventsDatabaseUrl) {
+      return response.status(503).json({ error: "Stripe Embedded Onramp is awaiting complete production configuration." });
+    }
+    const input = validateOnrampRequest(request.body);
+    if (!input.ok) return response.status(400).json({ error: input.error });
+    try {
+      const onrampSession = await createEmbeddedOnrampSession(stripe, {
+        network: input.network,
+        currency: input.currency,
+        walletAddress: input.walletAddress,
+        ...(request.ip ? { customerIp: request.ip } : {})
+      });
+      if (!onrampSession.client_secret) throw new Error("Stripe returned no client secret.");
+      return response.status(201).json({ clientSecret: onrampSession.client_secret, sessionId: onrampSession.id });
+    } catch {
+      return response.status(502).json({ error: "Stripe could not create an Embedded Onramp session. Confirm Onramp approval and the allowlisted domain in Dashboard." });
+    }
   });
 
   app.get("/", (_request, response) => {

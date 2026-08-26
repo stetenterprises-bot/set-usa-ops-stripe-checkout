@@ -19,6 +19,7 @@ describe("development server", () => {
       stripeConfigured: false,
       checkoutConfigured: false,
       webhookConfigured: false,
+      cryptoOnrampConfigured: false,
       mppConfigured: false,
       mppPrice: { amount: "0.50", currency: "usd", unit: "api_call" },
       privyConfigured: false,
@@ -88,6 +89,32 @@ describe("development server", () => {
     const app = createApp({ port: 4242, applicationBaseUrl: "http://127.0.0.1:4242" });
     expect((await request(app).get("/checkout/config")).status).toBe(503);
     expect((await request(app).post("/checkout/confirm-intent").send({ confirmationTokenId: "ct_test_example", customerEmail: "buyer@example.com" })).status).toBe(503);
+  });
+
+  it("serves Crypto - Fiat but fails closed before production Onramp configuration", async () => {
+    const app = createApp({ port: 4242, applicationBaseUrl: "http://127.0.0.1:4242" });
+    const page = await request(app).get("/crypto-fiat");
+    expect(page.status).toBe(200);
+    expect(page.text).toContain("Crypto - Fiat");
+    expect(page.headers["content-security-policy"]).toContain("https://crypto-js.stripe.com");
+    expect((await request(app).get("/crypto-fiat/config")).status).toBe(503);
+    expect((await request(app).post("/crypto-fiat/session").send({})).status).toBe(503);
+  });
+
+  it("requires explicit wallet and network confirmation before minting an Onramp session", async () => {
+    const app = createApp({
+      port: 4242,
+      applicationBaseUrl: "http://127.0.0.1:4242",
+      stripeApiKey: ["rk", "test", "unitvalue"].join("_"),
+      stripePublishableKey: ["pk", "test", "unitvalue"].join("_"),
+      stripeWebhookSecret: ["whsec", "unitvalue"].join("_"),
+      agenticEventsDatabaseUrl: "postgresql://unit:unit@127.0.0.1:5432/unit"
+    });
+    const response = await request(app)
+      .post("/crypto-fiat/session")
+      .send({ network: "ethereum", currency: "usdc", walletAddress: "0x0000000000000000000000000000000000000000" });
+    expect(response.status).toBe(400);
+    expect(response.body.error).toContain("Confirm the wallet");
   });
 
   it("returns server-authoritative static offer configurations", async () => {

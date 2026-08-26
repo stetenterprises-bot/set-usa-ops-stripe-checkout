@@ -37,6 +37,14 @@ Then run `npm run dev` and open one of the checkout URLs above. Stripe returns t
 
 ## $0.50 machine-payment API
 
+## Crypto - Fiat embedded onramp
+
+`GET /crypto-fiat` hosts Stripe's public-preview Embedded Onramp for US customers outside Hawaii. The customer selects an asset/network pair, supplies and confirms a public wallet address, and explicitly authorizes creation of one Onramp session. Stripe collects identity and payment information in its hosted embedded interface; the SET backend receives neither payment credentials nor wallet recovery material.
+
+The Node service creates sessions with `StripeClient.rawRequest("POST", "/v1/crypto/onramp_sessions", ...)` because the public-preview endpoint does not yet have a stable typed binding in stripe-node. Live session creation fails closed unless the live API key, publishable key, signed webhook secret, and PostgreSQL event store are configured. `crypto.onramp_session.updated` shares the signature-verified webhook endpoint and uses durable event-ID claims before processing.
+
+Embedded Components remains a separate private-preview integration and requires Stripe-provisioned Link OAuth credentials. Those credentials are not required by this Embedded Onramp fallback.
+
 `POST /paid` uses Stripe MPP to charge **$0.50 USD for every successful API call**. An unpaid request receives an HTTP 402 challenge; a caller with a valid Shared Payment Token retries the request and receives both the JSON result and an MPP payment receipt.
 
 The discovery document is available at `GET /openapi.json`. Configure a Stripe profile that matches the selected Stripe mode before starting the paid endpoint:

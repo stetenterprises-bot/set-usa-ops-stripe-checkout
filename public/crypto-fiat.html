@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Crypto - Fiat | SET Business Consults</title>
+    <meta name="description" content="Purchase cryptocurrency with fiat through Stripe's embedded onramp and deliver it to your wallet." />
+    <link rel="stylesheet" href="/assets/crypto-fiat.css" />
+    <script src="https://js.stripe.com/dahlia/stripe.js"></script>
+    <script src="https://crypto-js.stripe.com/crypto-onramp-outer.js"></script>
+    <script src="/assets/crypto-fiat.js" defer></script>
+  </head>
+  <body>
+    <main>
+      <header>
+        <a href="/checkout" class="brand">SET Business Consults</a>
+        <span class="mode">Stripe Embedded Onramp</span>
+      </header>
+      <section class="intro">
+        <p class="eyebrow">CRYPTO - FIAT</p>
+        <h1>Fund your own wallet.</h1>
+        <p>Choose a supported asset and network, confirm your public wallet address, then complete identity and payment directly with Stripe.</p>
+      </section>
+      <section class="panel" id="setup-panel">
+        <form id="onramp-form">
+          <label for="pair">Cryptocurrency and network</label>
+          <select id="pair" name="pair" required><option value="">Choose an asset and network</option></select>
+          <label for="wallet-address">Your public wallet address</label>
+          <input id="wallet-address" name="walletAddress" autocomplete="off" spellcheck="false" required />
+          <label class="confirmation">
+            <input id="confirmed" type="checkbox" required />
+            <span>I control this wallet, confirmed its network, and authorize creation of one Stripe Onramp session. I understand the US embedded onramp is unavailable in Hawaii.</span>
+          </label>
+          <button type="submit">Continue with Stripe</button>
+        </form>
+        <p class="status" id="status" role="status" aria-live="polite"></p>
+      </section>
+      <section class="onramp" id="onramp-panel" hidden>
+        <div id="onramp-element"></div>
+        <button class="secondary" id="start-over" type="button">Start over</button>
+      </section>
+      <footer>Stripe collects payment and identity information and delivers crypto to the confirmed public address. SET never receives your card, bank credentials, private key, or seed phrase.</footer>
+    </main>
+  </body>
+</html>
