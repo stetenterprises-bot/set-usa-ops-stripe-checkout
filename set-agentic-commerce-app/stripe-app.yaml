@@ -1,8 +1,18 @@
 $schema: https://stripe.com/stripe-app/v2.0.0/schema
 id: set-agentic-commerce
 name: SET Agentic Commerce
-version: 0.0.1
+version: 0.0.2
 icon: ./assets/set-agentic-commerce-icon.png
+declarations:
+    distribution_type: public
+    sandbox_install_compatible: true
+    stripe_api_access:
+        permissions:
+            - permission: event_read
+              purpose: Receive and inspect Stripe event metadata needed for connected-account automation.
+            - permission: payment_intent_read
+              purpose: Display PaymentIntent readiness and respond to connected-account payment lifecycle events.
+    stripe_api_access_type: platform
 ui_extension:
     views:
         - viewport: stripe.dashboard.drawer.default
