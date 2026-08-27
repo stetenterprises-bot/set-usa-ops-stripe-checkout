@@ -249,6 +249,27 @@ describe("development server", () => {
     });
   });
 
+  it("verifies sandbox drawer requests without replacing the production signing secret", async () => {
+    const sandboxSigningSecret = "absec_sandbox_unitvalue";
+    const payload = JSON.stringify({ user_id: "usr_sandbox", account_id: "acct_sandbox" });
+    const signature = Stripe.webhooks.generateTestHeaderString({
+      payload,
+      secret: sandboxSigningSecret
+    });
+    const response = await request(createApp({
+      port: 4242,
+      applicationBaseUrl: "http://127.0.0.1:4242",
+      stripeAppSigningSecret: "absec_production_unitvalue",
+      stripeAppSandboxSigningSecret: sandboxSigningSecret
+    }))
+      .post("/stripe-app/readiness")
+      .set("stripe-signature", signature)
+      .send({ user_id: "usr_sandbox", account_id: "acct_sandbox" });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({ ok: true, executionAuthorized: false });
+  });
+
   it("fails closed for unsigned or invalid Stripe App drawer requests", async () => {
     const app = createApp({
       port: 4242,

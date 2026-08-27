@@ -17,6 +17,7 @@ export type RuntimeConfig = {
   stripePublishableKey?: string;
   stripeWebhookSecret?: string;
   stripeAppSigningSecret?: string;
+  stripeAppSandboxSigningSecret?: string;
   stripeAppWebhookSecret?: string;
   stripeLinkOauthClientId?: string;
   stripeLinkOauthClientSecret?: string;
@@ -39,6 +40,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConfig 
   const stripePublishableKey = optionalSecret(env.STRIPE_PUBLISHABLE_KEY);
   const stripeWebhookSecret = optionalSecret(env.STRIPE_WEBHOOK_SECRET);
   const stripeAppSigningSecret = optionalSecret(env.STRIPE_APP_SIGNING_SECRET);
+  const stripeAppSandboxSigningSecret = optionalSecret(env.STRIPE_APP_SANDBOX_SIGNING_SECRET);
   const stripeAppWebhookSecret = optionalSecret(env.STRIPE_APP_WEBHOOK_SECRET);
   const stripeLinkOauthClientId = optionalSecret(env.STRIPE_LINK_OAUTH_CLIENT_ID);
   const stripeLinkOauthClientSecret = optionalSecret(env.STRIPE_LINK_OAUTH_CLIENT_SECRET);
@@ -134,6 +136,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConfig 
     ...(stripePublishableKey ? { stripePublishableKey } : {}),
     ...(stripeWebhookSecret ? { stripeWebhookSecret } : {}),
     ...(stripeAppSigningSecret ? { stripeAppSigningSecret } : {}),
+    ...(stripeAppSandboxSigningSecret ? { stripeAppSandboxSigningSecret } : {}),
     ...(stripeAppWebhookSecret ? { stripeAppWebhookSecret } : {}),
     ...(stripeLinkOauthClientId ? { stripeLinkOauthClientId } : {}),
     ...(stripeLinkOauthClientSecret ? { stripeLinkOauthClientSecret } : {}),

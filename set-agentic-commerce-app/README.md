@@ -22,6 +22,7 @@ pnpm start:backend
 Keep these values in encrypted deployment configuration, never in the repository:
 
 - `STRIPE_APP_SIGNING_SECRET` verifies `fetchStripeSignature` calls from the Dashboard drawer.
+- `STRIPE_APP_SANDBOX_SIGNING_SECRET` verifies sandbox drawer calls without replacing the production signing secret.
 - `STRIPE_APP_WEBHOOK_SECRET` verifies Stripe App and connected-account events.
 - The existing SET runtime variables provide MPP, Checkout, webhook, and Privy readiness.
 

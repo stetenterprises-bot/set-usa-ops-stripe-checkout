@@ -160,7 +160,11 @@ export function registerStripeAppUiRoutes(app: Express, config: RuntimeConfig): 
   app.post("/stripe-app/readiness", (request, response) => {
     setUiCors(response);
     response.setHeader("Cache-Control", "no-store");
-    if (!config.stripeAppSigningSecret) {
+    const signingSecrets = [
+      config.stripeAppSigningSecret,
+      config.stripeAppSandboxSigningSecret
+    ].filter((secret): secret is string => Boolean(secret));
+    if (signingSecrets.length === 0) {
       response.status(503).json({ error: "Stripe App signed-request verification is not configured." });
       return;
     }
@@ -173,7 +177,15 @@ export function registerStripeAppUiRoutes(app: Express, config: RuntimeConfig): 
     try {
       const signatureVerifier = Stripe.webhooks.signature;
       if (!signatureVerifier) throw new Error("Stripe signature verifier is unavailable.");
-      signatureVerifier.verifyHeader(payload, signature, config.stripeAppSigningSecret);
+      const verified = signingSecrets.some((secret) => {
+        try {
+          signatureVerifier.verifyHeader(payload, signature, secret);
+          return true;
+        } catch {
+          return false;
+        }
+      });
+      if (!verified) throw new Error("Invalid Stripe App signature.");
       response.json({
         ok: true,
         mppConfigured: Boolean(config.stripeApiKey && config.stripeProfileId),

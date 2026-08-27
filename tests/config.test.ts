@@ -111,9 +111,11 @@ describe("local Stripe configuration", () => {
   it("loads Stripe App verification secrets without exposing them elsewhere", () => {
     const config = loadConfig({
       STRIPE_APP_SIGNING_SECRET: "absec_examplevalue",
+      STRIPE_APP_SANDBOX_SIGNING_SECRET: "absec_sandbox_examplevalue",
       STRIPE_APP_WEBHOOK_SECRET: ["whsec", "app", "examplevalue"].join("_")
     });
     expect(config.stripeAppSigningSecret).toBe("absec_examplevalue");
+    expect(config.stripeAppSandboxSigningSecret).toBe("absec_sandbox_examplevalue");
     expect(config.stripeAppWebhookSecret).toBe(["whsec", "app", "examplevalue"].join("_"));
   });
 
