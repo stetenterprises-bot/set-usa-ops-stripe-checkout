@@ -171,6 +171,10 @@ export function registerStripeAppUiRoutes(app: Express, config: RuntimeConfig): 
     const signature = request.header("stripe-signature");
     const payload = signedUiPayload(request);
     if (!signature || !payload) {
+      console.warn(JSON.stringify({
+        kind: "stripe_app_readiness_rejected",
+        reason: !signature ? "missing_signature" : "invalid_context"
+      }));
       response.status(400).json({ error: "Signed Stripe user and account context is required." });
       return;
     }
@@ -186,6 +190,7 @@ export function registerStripeAppUiRoutes(app: Express, config: RuntimeConfig): 
         }
       });
       if (!verified) throw new Error("Invalid Stripe App signature.");
+      console.info(JSON.stringify({ kind: "stripe_app_readiness_verified" }));
       response.json({
         ok: true,
         mppConfigured: Boolean(config.stripeApiKey && config.stripeProfileId),
@@ -197,6 +202,12 @@ export function registerStripeAppUiRoutes(app: Express, config: RuntimeConfig): 
         executionAuthorized: false
       });
     } catch {
+      console.warn(JSON.stringify({
+        kind: "stripe_app_readiness_rejected",
+        reason: "invalid_signature",
+        productionSecretConfigured: Boolean(config.stripeAppSigningSecret),
+        sandboxSecretConfigured: Boolean(config.stripeAppSandboxSigningSecret)
+      }));
       response.status(401).json({ error: "Invalid Stripe App signature." });
     }
   });
