@@ -1,24 +1,23 @@
 $schema: https://stripe.com/stripe-app/v2.0.0/schema
 id: set-agentic-commerce
 name: SET Agentic Commerce
-version: 0.0.2
+version: 0.0.3
 icon: ./assets/set-agentic-commerce-icon.png
 declarations:
-    distribution_type: public
-    sandbox_install_compatible: true
+    distribution_type: private
     stripe_api_access:
         permissions:
             - permission: event_read
               purpose: Receive and inspect Stripe event metadata needed for connected-account automation.
             - permission: payment_intent_read
               purpose: Display PaymentIntent readiness and respond to connected-account payment lifecycle events.
-    stripe_api_access_type: platform
+    sandbox_install_compatible: true
 ui_extension:
     views:
         - viewport: stripe.dashboard.drawer.default
           component: App
     content_security_policy:
         connect-src:
-            - https://set-business-consults-mpp.onrender.com/stripe-app/
+            - https://set-business-consults-mpp.onrender.com/stripe-app/readiness
         purpose: Allow the dashboard drawer to request signed readiness data from the SET hosted backend.
 extensions: []

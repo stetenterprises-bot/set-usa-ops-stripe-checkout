@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ExtensionContextValue } from "@stripe/ui-extension-sdk/context";
-import { fetchStripeSignature } from "@stripe/ui-extension-sdk/utils";
+import {
+  fetchStripeSignature,
+  isSourceInAuthorizedCSP
+} from "@stripe/ui-extension-sdk/utils";
 import { Badge, Box, Button, ContextView } from "@stripe/ui-extension-sdk/ui";
 import {
   isCommerceReadiness,
@@ -25,17 +28,29 @@ export default function App({ userContext }: ExtensionContextValue) {
     setPending(true);
     setError(null);
     try {
+      if (!(await isSourceInAuthorizedCSP(READINESS_ENDPOINT))) {
+        throw new Error("SET backend connection is not authorized by this app version.");
+      }
+      let signature: string;
+      try {
+        signature = await fetchStripeSignature();
+      } catch {
+        throw new Error("Stripe could not create the signed backend request.");
+      }
       const response = await fetch(READINESS_ENDPOINT, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Stripe-Signature": await fetchStripeSignature()
+          "Stripe-Signature": signature
         },
         body: JSON.stringify({ user_id: userId, account_id: accountId })
       });
-      const body: unknown = await response.json();
-      if (!response.ok || !isCommerceReadiness(body)) {
-        throw new Error("SET readiness data is unavailable.");
+      const body: unknown = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(`SET backend rejected the signed request (${response.status}).`);
+      }
+      if (!isCommerceReadiness(body)) {
+        throw new Error("SET backend returned an invalid readiness response.");
       }
       setReadiness(body);
     } catch (requestError) {

@@ -38,6 +38,8 @@ async function readBody(request) {
 export function createStripeAppServer(configuration = {}) {
   const config = {
     appSigningSecret: configuration.appSigningSecret ?? process.env.STRIPE_APP_SIGNING_SECRET,
+    appSandboxSigningSecret:
+      configuration.appSandboxSigningSecret ?? process.env.STRIPE_APP_SANDBOX_SIGNING_SECRET,
     appWebhookSecret: configuration.appWebhookSecret ?? process.env.STRIPE_APP_WEBHOOK_SECRET,
     stripeApiKey: configuration.stripeApiKey ?? process.env.STRIPE_API_KEY,
     stripeProfileId: configuration.stripeProfileId ?? process.env.STRIPE_PROFILE_ID,
@@ -60,18 +62,27 @@ export function createStripeAppServer(configuration = {}) {
     }
 
     if (url.pathname === "/stripe-app/readiness" && request.method === "POST") {
-      if (!config.appSigningSecret) {
+      const appSigningSecrets = [config.appSigningSecret, config.appSandboxSigningSecret].filter(Boolean);
+      if (appSigningSecrets.length === 0) {
         sendJson(response, 503, { error: "Stripe App signed-request verification is not configured." }, true);
         return;
       }
       try {
         const body = JSON.parse((await readBody(request)).toString("utf8"));
         const payload = JSON.stringify({ user_id: body.user_id, account_id: body.account_id });
-        Stripe.webhooks.signature.verifyHeader(
-          payload,
-          request.headers["stripe-signature"],
-          config.appSigningSecret
-        );
+        const verified = appSigningSecrets.some((secret) => {
+          try {
+            Stripe.webhooks.signature.verifyHeader(
+              payload,
+              request.headers["stripe-signature"],
+              secret
+            );
+            return true;
+          } catch {
+            return false;
+          }
+        });
+        if (!verified) throw new Error("Invalid Stripe App signature.");
         sendJson(response, 200, {
           ok: true,
           mppConfigured: Boolean(config.stripeApiKey && config.stripeProfileId),

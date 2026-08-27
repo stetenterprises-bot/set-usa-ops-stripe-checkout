@@ -32,6 +32,26 @@ test("serves signed readiness without authorizing execution", async (context) =>
   assert.equal(body.executionAuthorized, false);
 });
 
+test("accepts the sandbox signing secret without replacing production", async (context) => {
+  const sandboxSecret = "absec_sandbox_test";
+  const server = createStripeAppServer({
+    appSigningSecret: "absec_production_test",
+    appSandboxSigningSecret: sandboxSecret
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  context.after(() => server.close());
+  const { port } = server.address();
+  const payload = JSON.stringify({ user_id: "usr_test", account_id: "acct_test" });
+  const signature = Stripe.webhooks.generateTestHeaderString({ payload, secret: sandboxSecret });
+  const response = await fetch(`http://127.0.0.1:${port}/stripe-app/readiness`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "stripe-signature": signature },
+    body: payload
+  });
+  assert.equal(response.status, 200);
+});
+
 test("fails closed when signed-request verification is not configured", async (context) => {
   const server = createStripeAppServer();
   server.listen(0, "127.0.0.1");
