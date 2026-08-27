@@ -18,6 +18,8 @@ export type RuntimeConfig = {
   stripeWebhookSecret?: string;
   stripeAppSigningSecret?: string;
   stripeAppWebhookSecret?: string;
+  stripeLinkOauthClientId?: string;
+  stripeLinkOauthClientSecret?: string;
   agenticEventsDatabaseUrl?: string;
   stripeProfileId?: string;
   mppSecretKey?: string;
@@ -38,6 +40,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConfig 
   const stripeWebhookSecret = optionalSecret(env.STRIPE_WEBHOOK_SECRET);
   const stripeAppSigningSecret = optionalSecret(env.STRIPE_APP_SIGNING_SECRET);
   const stripeAppWebhookSecret = optionalSecret(env.STRIPE_APP_WEBHOOK_SECRET);
+  const stripeLinkOauthClientId = optionalSecret(env.STRIPE_LINK_OAUTH_CLIENT_ID);
+  const stripeLinkOauthClientSecret = optionalSecret(env.STRIPE_LINK_OAUTH_CLIENT_SECRET);
   const agenticEventsDatabaseUrl = optionalSecret(env.AGENTIC_EVENTS_DB_URL);
   const stripeProfileId = optionalSecret(env.STRIPE_PROFILE_ID);
   const mppSecretKey = optionalSecret(env.MPP_SECRET_KEY);
@@ -82,6 +86,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConfig 
     throw new Error("PRIVY_APP_ID and PRIVY_APP_SECRET must be configured together.");
   }
 
+  if (Boolean(stripeLinkOauthClientId) !== Boolean(stripeLinkOauthClientSecret)) {
+    throw new Error("STRIPE_LINK_OAUTH_CLIENT_ID and STRIPE_LINK_OAUTH_CLIENT_SECRET must be configured together.");
+  }
+
+  if (stripeLinkOauthClientId && !stripeLinkOauthClientId.startsWith("lwlpk_")) {
+    throw new Error("STRIPE_LINK_OAUTH_CLIENT_ID must be a Link OAuth client ID.");
+  }
+
+  if (stripeLinkOauthClientSecret && !stripeLinkOauthClientSecret.startsWith("lwlsk_")) {
+    throw new Error("STRIPE_LINK_OAUTH_CLIENT_SECRET must be a Link OAuth client secret.");
+  }
+
   if (agenticEventsDatabaseUrl) {
     const databaseUrl = new URL(agenticEventsDatabaseUrl);
     if (databaseUrl.protocol !== "postgres:" && databaseUrl.protocol !== "postgresql:") {
@@ -119,6 +135,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConfig 
     ...(stripeWebhookSecret ? { stripeWebhookSecret } : {}),
     ...(stripeAppSigningSecret ? { stripeAppSigningSecret } : {}),
     ...(stripeAppWebhookSecret ? { stripeAppWebhookSecret } : {}),
+    ...(stripeLinkOauthClientId ? { stripeLinkOauthClientId } : {}),
+    ...(stripeLinkOauthClientSecret ? { stripeLinkOauthClientSecret } : {}),
     ...(agenticEventsDatabaseUrl ? { agenticEventsDatabaseUrl } : {}),
     ...(stripeProfileId ? { stripeProfileId } : {}),
     ...(mppSecretKey ? { mppSecretKey } : {}),

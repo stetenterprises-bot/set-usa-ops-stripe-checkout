@@ -10,6 +10,7 @@ const startOverButton = document.querySelector("#start-over");
 
 let config;
 let session;
+const privateBasePath = window.location.pathname.replace(/\/$/, "");
 
 function setStatus(message, isError = false) {
   statusElement.textContent = message;
@@ -17,7 +18,7 @@ function setStatus(message, isError = false) {
 }
 
 async function loadConfig() {
-  const response = await fetch("/crypto-fiat/config", { headers: { Accept: "application/json" } });
+  const response = await fetch(`${privateBasePath}/config`, { headers: { Accept: "application/json" } });
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || "Crypto - Fiat is not configured.");
   config = data;
@@ -37,7 +38,7 @@ form.addEventListener("submit", async (event) => {
   button.disabled = true;
   setStatus("Creating a secure Stripe Onramp session…");
   try {
-    const response = await fetch("/crypto-fiat/session", {
+    const response = await fetch(`${privateBasePath}/session`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify({ network, currency, walletAddress: walletInput.value, confirmed: true })

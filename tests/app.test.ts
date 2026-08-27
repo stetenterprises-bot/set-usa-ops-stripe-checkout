@@ -20,6 +20,7 @@ describe("development server", () => {
       checkoutConfigured: false,
       webhookConfigured: false,
       cryptoOnrampConfigured: false,
+      cryptoEmbeddedComponentsConfigured: false,
       mppConfigured: false,
       mppPrice: { amount: "0.50", currency: "usd", unit: "api_call" },
       privyConfigured: false,
@@ -91,14 +92,15 @@ describe("development server", () => {
     expect((await request(app).post("/checkout/confirm-intent").send({ confirmationTokenId: "ct_test_example", customerEmail: "buyer@example.com" })).status).toBe(503);
   });
 
-  it("serves Crypto - Fiat but fails closed before production Onramp configuration", async () => {
+  it("serves the Components option while both crypto flows fail closed before configuration", async () => {
     const app = createApp({ port: 4242, applicationBaseUrl: "http://127.0.0.1:4242" });
     const page = await request(app).get("/crypto-fiat");
     expect(page.status).toBe(200);
-    expect(page.text).toContain("Crypto - Fiat");
+    expect(page.text).toContain("Embedded Components");
     expect(page.headers["content-security-policy"]).toContain("https://crypto-js.stripe.com");
-    expect((await request(app).get("/crypto-fiat/config")).status).toBe(503);
-    expect((await request(app).post("/crypto-fiat/session").send({})).status).toBe(503);
+    expect((await request(app).get("/crypto-fiat/components/config")).status).toBe(503);
+    expect((await request(app).post("/crypto-fiat/components/link-auth-intent").send({})).status).toBe(503);
+    expect((await request(app).get("/private/embedded-onramp-OPoWPWqwaOqszCJaOMmp-wiY/config")).status).toBe(503);
   });
 
   it("requires explicit wallet and network confirmation before minting an Onramp session", async () => {
@@ -111,7 +113,7 @@ describe("development server", () => {
       agenticEventsDatabaseUrl: "postgresql://unit:unit@127.0.0.1:5432/unit"
     });
     const response = await request(app)
-      .post("/crypto-fiat/session")
+      .post("/private/embedded-onramp-OPoWPWqwaOqszCJaOMmp-wiY/session")
       .send({ network: "ethereum", currency: "usdc", walletAddress: "0x0000000000000000000000000000000000000000" });
     expect(response.status).toBe(400);
     expect(response.body.error).toContain("Confirm the wallet");

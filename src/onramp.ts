@@ -9,6 +9,9 @@ const ONRAMP_PAIRS = [
   { network: "solana", currency: "usdc", label: "USDC on Solana" }
 ] as const;
 
+export const PRIVATE_EMBEDDED_ONRAMP_PATH = "/private/embedded-onramp-OPoWPWqwaOqszCJaOMmp-wiY";
+export const LINK_OAUTH_SCOPES = "crypto:ramp,kyc.status:read";
+
 export type OnrampPair = (typeof ONRAMP_PAIRS)[number];
 
 export type CryptoOnrampSession = {
@@ -72,4 +75,42 @@ export async function createEmbeddedOnrampSession(
     { idempotencyKey: `set-embedded-onramp-${crypto.randomUUID()}` }
   );
   return response.data as CryptoOnrampSession;
+}
+
+export async function createLinkAuthIntent(
+  stripeApiKey: string,
+  oauthClientId: string,
+  email: string
+): Promise<{ status: number; data: Record<string, unknown> }> {
+  const response = await fetch("https://login.link.com/v1/link_auth_intent", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${stripeApiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ email, oauth_scopes: LINK_OAUTH_SCOPES, oauth_client_id: oauthClientId })
+  });
+  return { status: response.status, data: await response.json() as Record<string, unknown> };
+}
+
+export async function exchangeLinkAccessToken(stripeApiKey: string, authIntentId: string): Promise<string> {
+  const response = await fetch(`https://login.link.com/v1/link_auth_intent/${encodeURIComponent(authIntentId)}/tokens`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${stripeApiKey}` }
+  });
+  const data = await response.json() as { access_token?: unknown };
+  if (!response.ok || typeof data.access_token !== "string") throw new Error("Link OAuth token exchange failed.");
+  return data.access_token;
+}
+
+export async function componentsRawRequest<T>(
+  stripe: Stripe,
+  oauthToken: string,
+  method: "GET" | "POST",
+  path: string,
+  params: Record<string, unknown> = {}
+): Promise<T> {
+  const response = await stripe.rawRequest(method, path, params, {
+    apiVersion: "2026-07-29.dahlia;crypto_onramp_beta=v2" as never,
+    additionalHeaders: { "Stripe-OAuth-Token": oauthToken },
+    ...(method === "POST" ? { idempotencyKey: `set-components-onramp-${crypto.randomUUID()}` } : {})
+  });
+  return response.data as T;
 }

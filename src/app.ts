@@ -25,7 +25,15 @@ import {
   registerStripeAppWebhookRoute,
   type StripeAppEventStore
 } from "./stripe-app.js";
-import { createEmbeddedOnrampSession, onrampPairs, validateOnrampRequest } from "./onramp.js";
+import {
+  PRIVATE_EMBEDDED_ONRAMP_PATH,
+  componentsRawRequest,
+  createEmbeddedOnrampSession,
+  createLinkAuthIntent,
+  exchangeLinkAccessToken,
+  onrampPairs,
+  validateOnrampRequest
+} from "./onramp.js";
 
 const HANDLED_STRIPE_EVENTS = new Set([
   "payment_intent.created",
@@ -106,6 +114,7 @@ export function createApp(config: RuntimeConfig, dependencies: AppDependencies =
       checkoutConfigured: Boolean(config.stripeApiKey && config.stripePublishableKey),
       webhookConfigured: Boolean(config.stripeWebhookSecret),
       cryptoOnrampConfigured: Boolean(config.stripeApiKey && config.stripePublishableKey && config.stripeWebhookSecret && config.agenticEventsDatabaseUrl),
+      cryptoEmbeddedComponentsConfigured: Boolean(config.stripeApiKey && config.stripePublishableKey && config.stripeLinkOauthClientId && config.stripeLinkOauthClientSecret),
       mppConfigured: Boolean(paidApi),
       mppPrice: { amount: "0.50", currency: "usd", unit: "api_call" },
       privyConfigured: Boolean(config.privyAppId && config.privyAppSecret),
@@ -275,36 +284,107 @@ export function createApp(config: RuntimeConfig, dependencies: AppDependencies =
   });
 
   app.get("/crypto-fiat", (_request, response) => {
-    response.sendFile(join(publicDirectory, "crypto-fiat.html"));
+    response.sendFile(join(publicDirectory, "crypto-fiat-components.html"));
   });
 
-  app.get("/crypto-fiat/config", (_request, response) => {
+  app.get("/crypto-fiat/components/config", (_request, response) => {
     response.setHeader("Cache-Control", "no-store");
-    if (!config.stripePublishableKey || !config.stripeApiKey || !config.stripeWebhookSecret || !config.agenticEventsDatabaseUrl) {
-      return response.status(503).json({ error: "Stripe Embedded Onramp is awaiting complete production configuration." });
+    if (!config.stripePublishableKey || !config.stripeApiKey || !config.stripeLinkOauthClientId || !config.stripeLinkOauthClientSecret) {
+      return response.status(503).json({ error: "Stripe Embedded Components is awaiting Link OAuth production configuration." });
     }
+    return response.json({ publishableKey: config.stripePublishableKey, mode: stripeMode, country: "US", availability: "US excluding New York" });
+  });
+
+  app.post("/crypto-fiat/components/link-auth-intent", async (request, response) => {
+    response.setHeader("Cache-Control", "no-store");
+    if (!config.stripeApiKey || !config.stripeLinkOauthClientId || !config.stripeLinkOauthClientSecret) {
+      return response.status(503).json({ error: "Link OAuth is not configured." });
+    }
+    const email = normalizedEmail(request.body?.email);
+    if (!email) return response.status(400).json({ error: "A valid email address is required." });
+    try {
+      const result = await createLinkAuthIntent(config.stripeApiKey, config.stripeLinkOauthClientId, email);
+      const authIntentId = result.data.id;
+      if (typeof authIntentId === "string") return response.status(201).json({ authIntentId });
+      return response.status(result.status).json({ error: result.status === 404 ? "No Link account exists for this email." : "Link authentication could not be started." });
+    } catch {
+      return response.status(502).json({ error: "Link authentication could not be started." });
+    }
+  });
+
+  app.post("/crypto-fiat/components/session", async (request, response) => {
+    response.setHeader("Cache-Control", "no-store");
+    if (!stripe || !config.stripeApiKey || !config.stripeLinkOauthClientId || !config.stripeLinkOauthClientSecret) {
+      return response.status(503).json({ error: "Stripe Embedded Components is not configured." });
+    }
+    const { authIntentId, cryptoCustomerId, paymentToken, sourceAmount, walletAddress } = request.body ?? {};
+    if (typeof authIntentId !== "string" || !/^lai_[A-Za-z0-9_]+$/.test(authIntentId)) return response.status(400).json({ error: "A valid Link authorization is required." });
+    if (typeof cryptoCustomerId !== "string" || !/^ccus_[A-Za-z0-9_]+$/.test(cryptoCustomerId)) return response.status(400).json({ error: "A valid crypto customer is required." });
+    if (typeof paymentToken !== "string" || paymentToken.length > 512) return response.status(400).json({ error: "A valid crypto payment token is required." });
+    if (typeof walletAddress !== "string" || !/^0x[a-fA-F0-9]{40}$/.test(walletAddress)) return response.status(400).json({ error: "Enter a valid Base wallet address." });
+    const amount = Number(sourceAmount);
+    if (!Number.isFinite(amount) || amount < 1 || amount > 10_000) return response.status(400).json({ error: "Enter a USD amount from 1 to 10,000." });
+    try {
+      const oauthToken = await exchangeLinkAccessToken(config.stripeApiKey, authIntentId);
+      const session = await componentsRawRequest<{ id: string; quote?: { expires_at?: number | null } }>(stripe, oauthToken, "POST", "/v1/crypto/onramp_sessions", {
+        ui_mode: "headless",
+        crypto_customer_id: cryptoCustomerId,
+        payment_token: paymentToken,
+        source_amount: String(amount),
+        source_currency: "usd",
+        destination_currency: "usdc",
+        destination_currencies: ["usdc"],
+        destination_network: "base",
+        destination_networks: ["base"],
+        wallet_address: walletAddress,
+        ...(request.ip ? { customer_ip_address: request.ip } : {})
+      });
+      return response.status(201).json({ id: session.id, quoteExpiresAt: session.quote?.expires_at ?? null });
+    } catch {
+      return response.status(502).json({ error: "The Components session could not be created. Confirm private-preview gates and Link verification." });
+    }
+  });
+
+  app.post("/crypto-fiat/components/session/:sessionId/quote", async (request, response) => {
+    if (!stripe || !config.stripeApiKey) return response.status(503).json({ error: "Stripe Embedded Components is not configured." });
+    const authIntentId = request.body?.authIntentId;
+    if (typeof authIntentId !== "string" || !/^lai_[A-Za-z0-9_]+$/.test(authIntentId) || !/^cos_[A-Za-z0-9_]+$/.test(request.params.sessionId)) return response.status(400).json({ error: "Invalid session request." });
+    try {
+      const oauthToken = await exchangeLinkAccessToken(config.stripeApiKey, authIntentId);
+      return response.json(await componentsRawRequest(stripe, oauthToken, "POST", `/v1/crypto/onramp_sessions/${request.params.sessionId}/quote`));
+    } catch { return response.status(502).json({ error: "The quote could not be refreshed." }); }
+  });
+
+  app.post("/crypto-fiat/components/session/:sessionId/checkout", async (request, response) => {
+    if (!stripe || !config.stripeApiKey) return response.status(503).json({ error: "Stripe Embedded Components is not configured." });
+    const authIntentId = request.body?.authIntentId;
+    if (typeof authIntentId !== "string" || !/^lai_[A-Za-z0-9_]+$/.test(authIntentId) || !/^cos_[A-Za-z0-9_]+$/.test(request.params.sessionId)) return response.status(400).json({ error: "Invalid checkout request." });
+    try {
+      const oauthToken = await exchangeLinkAccessToken(config.stripeApiKey, authIntentId);
+      const session = await componentsRawRequest<{ client_secret?: string }>(stripe, oauthToken, "POST", `/v1/crypto/onramp_sessions/${request.params.sessionId}/checkout`, {
+        mandate_data: { customer_acceptance: { type: "online", accepted_at: Math.floor(Date.now() / 1000), online: { ip_address: request.ip ?? "", user_agent: request.header("user-agent") ?? "" } } }
+      });
+      if (!session.client_secret) throw new Error("No checkout client secret.");
+      return response.json({ client_secret: session.client_secret });
+    } catch { return response.status(502).json({ error: "Stripe could not begin Components checkout." }); }
+  });
+
+  app.get(PRIVATE_EMBEDDED_ONRAMP_PATH, (_request, response) => response.sendFile(join(publicDirectory, "crypto-fiat.html")));
+  app.get(`${PRIVATE_EMBEDDED_ONRAMP_PATH}/config`, (_request, response) => {
+    response.setHeader("Cache-Control", "no-store");
+    if (!config.stripePublishableKey || !config.stripeApiKey || !config.stripeWebhookSecret || !config.agenticEventsDatabaseUrl) return response.status(503).json({ error: "Stripe Embedded Onramp is awaiting complete production configuration." });
     return response.json({ publishableKey: config.stripePublishableKey, mode: stripeMode, country: "US", pairs: onrampPairs() });
   });
-
-  app.post("/crypto-fiat/session", async (request, response) => {
+  app.post(`${PRIVATE_EMBEDDED_ONRAMP_PATH}/session`, async (request, response) => {
     response.setHeader("Cache-Control", "no-store");
-    if (!stripe || !config.stripePublishableKey || !config.stripeWebhookSecret || !config.agenticEventsDatabaseUrl) {
-      return response.status(503).json({ error: "Stripe Embedded Onramp is awaiting complete production configuration." });
-    }
+    if (!stripe || !config.stripePublishableKey || !config.stripeWebhookSecret || !config.agenticEventsDatabaseUrl) return response.status(503).json({ error: "Stripe Embedded Onramp is awaiting complete production configuration." });
     const input = validateOnrampRequest(request.body);
     if (!input.ok) return response.status(400).json({ error: input.error });
     try {
-      const onrampSession = await createEmbeddedOnrampSession(stripe, {
-        network: input.network,
-        currency: input.currency,
-        walletAddress: input.walletAddress,
-        ...(request.ip ? { customerIp: request.ip } : {})
-      });
+      const onrampSession = await createEmbeddedOnrampSession(stripe, { network: input.network, currency: input.currency, walletAddress: input.walletAddress, ...(request.ip ? { customerIp: request.ip } : {}) });
       if (!onrampSession.client_secret) throw new Error("Stripe returned no client secret.");
       return response.status(201).json({ clientSecret: onrampSession.client_secret, sessionId: onrampSession.id });
-    } catch {
-      return response.status(502).json({ error: "Stripe could not create an Embedded Onramp session. Confirm Onramp approval and the allowlisted domain in Dashboard." });
-    }
+    } catch { return response.status(502).json({ error: "Stripe could not create an Embedded Onramp session. Confirm Onramp approval and the allowlisted domain in Dashboard." }); }
   });
 
   app.get("/", (_request, response) => {
