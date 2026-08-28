@@ -1,9 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ExtensionContextValue } from "@stripe/ui-extension-sdk/context";
-import {
-  fetchStripeSignature,
-  isSourceInAuthorizedCSP
-} from "@stripe/ui-extension-sdk/utils";
+import { fetchStripeSignature } from "@stripe/ui-extension-sdk/utils";
 import { Badge, Box, Button, ContextView } from "@stripe/ui-extension-sdk/ui";
 import {
   isCommerceReadiness,
@@ -28,9 +25,6 @@ export default function App({ userContext }: ExtensionContextValue) {
     setPending(true);
     setError(null);
     try {
-      if (!(await isSourceInAuthorizedCSP(READINESS_ENDPOINT))) {
-        throw new Error("SET backend connection is not authorized by this app version.");
-      }
       let signature: string;
       try {
         signature = await fetchStripeSignature();

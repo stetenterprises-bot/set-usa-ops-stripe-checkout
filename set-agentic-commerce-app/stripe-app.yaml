@@ -1,7 +1,7 @@
 $schema: https://stripe.com/stripe-app/v2.0.0/schema
 id: set-agentic-commerce
 name: SET Agentic Commerce
-version: 0.0.3
+version: 0.0.4
 icon: ./assets/set-agentic-commerce-icon.png
 declarations:
     distribution_type: private
