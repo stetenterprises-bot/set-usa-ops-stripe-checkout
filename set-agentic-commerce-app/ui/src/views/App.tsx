@@ -27,7 +27,10 @@ export default function App({ userContext }: ExtensionContextValue) {
     try {
       let signature: string;
       try {
-        signature = await fetchStripeSignature();
+        signature = await fetchStripeSignature({
+          user_id: userId,
+          account_id: accountId
+        });
       } catch {
         throw new Error("Stripe could not create the signed backend request.");
       }
