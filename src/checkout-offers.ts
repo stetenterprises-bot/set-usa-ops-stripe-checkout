@@ -3,7 +3,8 @@ import type Stripe from "stripe";
 export type CheckoutOfferId =
   | "workflow-improvement-review-495-usd"
   | "workflow-improvement-review-297-usd"
-  | "workflow-improvement-review-297-eur";
+  | "workflow-improvement-review-297-eur"
+  | "open-payment";
 
 export type CheckoutOffer = {
   id: CheckoutOfferId;
@@ -13,6 +14,7 @@ export type CheckoutOffer = {
   currency: "usd" | "eur";
   paymentMethodTypes: Stripe.PaymentIntentCreateParams.AllowedPaymentMethodType[];
   customerBalanceBankTransferType?: "us_bank_transfer";
+  openAmount?: boolean;
 };
 
 const usdPaymentMethodTypes: Stripe.PaymentIntentCreateParams.AllowedPaymentMethodType[] = [
@@ -57,6 +59,16 @@ const offers: Record<CheckoutOfferId, CheckoutOffer> = {
     amount: 29_700,
     currency: "eur",
     paymentMethodTypes: eurPaymentMethodTypes
+  },
+  "open-payment": {
+    id: "open-payment",
+    title: "Open Payment",
+    description: "Enter the amount you want to pay, choose USD or EUR, and complete the secure payment flow.",
+    amount: 100,
+    currency: "usd",
+    paymentMethodTypes: usdPaymentMethodTypes,
+    customerBalanceBankTransferType: "us_bank_transfer",
+    openAmount: true
   }
 };
 
@@ -73,6 +85,12 @@ export function checkoutOfferClientConfig(offer: CheckoutOffer) {
     description: offer.description,
     amount: offer.amount,
     currency: offer.currency,
-    paymentMethodTypes: [...offer.paymentMethodTypes]
+    paymentMethodTypes: [...offer.paymentMethodTypes],
+    openAmount: offer.openAmount ?? false,
+    currencies: offer.openAmount ? ["usd", "eur"] : [offer.currency],
+    paymentMethodTypesByCurrency: offer.openAmount ? {
+      usd: [...usdPaymentMethodTypes],
+      eur: [...eurPaymentMethodTypes]
+    } : undefined
   };
 }

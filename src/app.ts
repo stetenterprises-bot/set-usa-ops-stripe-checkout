@@ -234,9 +234,30 @@ export function createApp(config: RuntimeConfig, dependencies: AppDependencies =
       return response.status(400).json({ error: "Idempotency-Key must contain 8-200 URL-safe characters." });
     }
     const idempotencyKey = suppliedKey ?? `set-payment-intent-${crypto.randomUUID()}`;
+    let effectiveOffer = offer;
+    if (offer.openAmount) {
+      const amount = request.body?.amount;
+      const currency = request.body?.currency;
+      if (!Number.isInteger(amount) || amount < 100 || amount > 1_000_000) {
+        return response.status(400).json({ error: "Enter an amount between 1.00 and 10,000.00." });
+      }
+      if (currency !== "usd" && currency !== "eur") {
+        return response.status(400).json({ error: "Choose USD or EUR." });
+      }
+      const paymentMethodTypes = currency === "usd"
+        ? ["card", "cashapp", "crypto", "us_bank_account", "customer_balance"]
+        : ["card", "bizum", "eps", "mb_way", "multibanco"];
+      effectiveOffer = {
+        ...offer,
+        amount,
+        currency,
+        paymentMethodTypes: paymentMethodTypes as CheckoutOffer["paymentMethodTypes"],
+        ...(currency === "usd" ? { customerBalanceBankTransferType: "us_bank_transfer" as const } : {})
+      };
+    }
     try {
       const paymentIntent = await integration.createAndConfirmPaymentIntent(
-        offer,
+        effectiveOffer,
         confirmationTokenId,
         customerEmail,
         idempotencyKey

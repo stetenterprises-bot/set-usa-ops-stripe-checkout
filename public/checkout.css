@@ -37,6 +37,11 @@ ul { margin: 0; padding-left: 20px; color: #dfe9e3; line-height: 2; }
 label { display: block; margin-bottom: 8px; color: #425149; font-size: 0.85rem; font-weight: 750; }
 input[type="email"] { width: 100%; margin-bottom: 24px; border: 1px solid #b8c0bc; border-radius: 10px; padding: 13px 14px; background: #fff; color: #17221d; font: inherit; }
 input[type="email"]:focus { outline: 3px solid rgb(201 124 78 / 28%); border-color: #c97c4e; }
+#open-payment-fields { display: grid; grid-template-columns: 1fr 0.55fr; gap: 10px 14px; margin-bottom: 24px; padding: 16px; border: 1px solid #cdded3; border-radius: 12px; background: #f1f8f3; }
+#open-payment-fields[hidden] { display: none; }
+#open-payment-fields label { margin: 0; align-self: center; }
+#open-payment-fields input, #open-payment-fields select { width: 100%; border: 1px solid #b8cabe; border-radius: 8px; padding: 12px; background: #fff; color: #14201b; font: inherit; }
+#open-payment-fields input:focus, #open-payment-fields select:focus { outline: 3px solid rgb(86 223 145 / 28%); border-color: #31b46b; }
 #contact-details-element, #payment-element { margin-bottom: 24px; }
 button {
   width: 100%;
@@ -44,13 +49,13 @@ button {
   border: 0;
   border-radius: 999px;
   padding: 16px 24px;
-  background: #c97c4e;
+  background: #31b46b;
   color: #fff;
   font: inherit;
   font-weight: 800;
   cursor: pointer;
 }
-button:hover { background: #ad653c; }
+button:hover { background: #187644; }
 button:disabled { cursor: wait; opacity: 0.6; }
 #payment-message { min-height: 24px; color: #a22a2a; }
 .security-note { margin-top: 24px; color: #68746e; font-size: 0.82rem; line-height: 1.6; }
@@ -61,4 +66,8 @@ button:disabled { cursor: wait; opacity: 0.6; }
 @media (max-width: 800px) {
   .checkout-shell { grid-template-columns: 1fr; margin: 20px auto; }
   .payment-panel { min-height: auto; }
+}
+
+@media (max-width: 520px) {
+  #open-payment-fields { grid-template-columns: 1fr; }
 }

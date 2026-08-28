@@ -20,6 +20,7 @@ The service exposes three Payment Intents + Payment Element offers:
 - `GET /checkout` — $495 USD Workflow Improvement Review.
 - `GET /checkout/workflow-improvement-review-297-usd` — $297 USD version.
 - `GET /checkout/workflow-improvement-review-297-eur` — €297 EUR version.
+- `GET /checkout/open-payment` — customer-entered USD or EUR amount between 1.00 and 10,000.00.
 
 Stripe.js renders Elements before an Intent exists, creates a short-lived ConfirmationToken, and sends its ID plus the buyer-supplied receipt/follow-up email to the offer-specific server endpoint. The server owns the offer ID, amount, currency, and matching explicit payment-method allowlist, then creates and confirms the PaymentIntent in an idempotent request. Dynamic payment-method selection is disabled.
 

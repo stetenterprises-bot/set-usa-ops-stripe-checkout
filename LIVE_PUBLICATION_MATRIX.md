@@ -13,7 +13,7 @@ This matrix is the release gate for the next publication. `UNKNOWN` and `BLOCKED
 | MPP profile | Current live challenge contains a live Stripe profile and card/Link methods. | VERIFIED, identifier omitted here |
 | MPP full round trip | Stripe documents that live `mppx validate` can move real funds. No live validator payment was submitted. | NOT RUN; separately payment-authorized |
 | Stablecoin MPP | Current challenge advertises card and Link only; no Tempo or Solana stablecoin method is present. | NOT ENABLED |
-| Offer amounts/currencies | $495 USD, $297 USD, and EUR 297 checkout offers; $0.50 USD MPP request. | VERIFIED in source |
+| Offer amounts/currencies | $495 USD, $297 USD, EUR 297 checkout offers, and Open Payment with customer-entered USD/EUR amount bounded to 1.00–10,000.00; $0.50 USD MPP request. | VERIFIED in source; Open Payment production behavior not re-smoked |
 | Live account payment-method availability | Authenticated account capabilities show active card, Link, Cash App Pay, crypto, ACH, US bank transfer, Bizum, EPS, MB WAY, Multibanco, and other methods. | VERIFIED at account layer |
 | Transaction-specific eligibility | Exact eligibility for every offer, customer location, return flow, and funding path was not re-run during this publication pass. | UNKNOWN |
 | User-selected static allowlists | USD: `card`, `cashapp`, `crypto`, `us_bank_account`, `customer_balance`; EUR: `card`, `bizum`, `eps`, `mb_way`, `multibanco`. | VERIFIED in source; no change made |

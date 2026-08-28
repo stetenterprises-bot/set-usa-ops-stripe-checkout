@@ -16,9 +16,9 @@
         <p class="description" id="offer-description">A focused operational review with prioritized findings and next-step recommendations.</p>
         <div class="price"><span id="offer-amount">—</span><span id="offer-currency">One-time payment</span></div>
         <ul>
-          <li>Current-workflow assessment</li>
-          <li>Prioritized improvement findings</li>
-          <li>Practical next-step recommendations</li>
+          <li>Operator-selected amount</li>
+          <li>Secure provider payment handoff</li>
+          <li>Receipt and follow-up confirmation</li>
         </ul>
       </section>
 
@@ -29,6 +29,12 @@
         <form id="payment-form" hidden>
           <label for="customer-email">Email for receipt and follow-up</label>
           <input id="customer-email" name="email" type="email" autocomplete="email" maxlength="254" required>
+          <div id="open-payment-fields" hidden>
+            <label for="open-amount">Amount</label>
+            <input id="open-amount" name="amount" type="number" min="1" max="10000" step="0.01" inputmode="decimal">
+            <label for="open-currency">Currency</label>
+            <select id="open-currency" name="currency"></select>
+          </div>
           <div id="payment-element"></div>
           <button id="submit" type="submit">Pay securely</button>
           <p id="payment-message" role="alert" aria-live="polite"></p>

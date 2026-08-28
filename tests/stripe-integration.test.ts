@@ -4,6 +4,15 @@ import { createStripeIntegration } from "../src/stripe-integration.js";
 import { getCheckoutOffer } from "../src/checkout-offers.js";
 
 describe("server-confirmed Payment Element", () => {
+  it("exposes the open payment offer without a preset customer-facing amount", () => {
+    const offer = getCheckoutOffer("open-payment")!;
+
+    expect(offer.openAmount).toBe(true);
+    expect(offer.title).toBe("Open Payment");
+    expect(offer.amount).toBe(100);
+    expect(offer.currency).toBe("usd");
+  });
+
   it("creates and confirms a server-authoritative PaymentIntent from a ConfirmationToken", async () => {
     const create = vi.fn().mockResolvedValue({
       id: "pi_test_example",
