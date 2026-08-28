@@ -58,8 +58,14 @@ async function initializeCheckout() {
       paymentMethodTypes: isOpenPayment ? offer.paymentMethodTypesByCurrency.usd : offer.paymentMethodTypes,
       paymentMethodCreation: "manual",
       appearance: {
-        theme: "stripe",
-        variables: { colorPrimary: "#c97c4e", borderRadius: "10px" }
+        theme: "night",
+        variables: {
+          colorPrimary: "#71e4b8",
+          colorBackground: "#0c1c17",
+          colorText: "#f4f7f6",
+          colorDanger: "#ff9e91",
+          borderRadius: "10px"
+        }
       }
     });
     const paymentElement = elements.create("payment", { layout: "accordion" });
