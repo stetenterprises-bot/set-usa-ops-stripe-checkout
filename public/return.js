@@ -1,6 +1,7 @@
 const title = document.querySelector("#status-title");
 const message = document.querySelector("#status-message");
 const paymentIntentId = new URLSearchParams(window.location.search).get("payment_intent");
+const successfulPurchaseUrl = "https://ledgerline-compliance.sthomas935.chatgpt.site/thank-you";
 
 async function showStatus() {
   if (!paymentIntentId) {
@@ -17,7 +18,8 @@ async function showStatus() {
     switch (paymentIntent.status) {
       case "succeeded":
         title.textContent = "Payment received";
-        message.textContent = "Your payment was completed. SET Business Consults will follow up using the email supplied at checkout.";
+        message.textContent = "Your payment was completed. Redirecting to confirmation and next steps…";
+        window.location.replace(successfulPurchaseUrl);
         return;
       case "processing":
         title.textContent = "Payment processing";

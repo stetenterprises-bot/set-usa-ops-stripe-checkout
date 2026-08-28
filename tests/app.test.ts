@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import request from "supertest";
 import Stripe from "stripe";
 import { describe, expect, it, vi } from "vitest";
@@ -8,6 +9,14 @@ import {
 } from "../src/stripe-app.js";
 
 describe("development server", () => {
+  it("redirects only a Stripe-confirmed successful payment to the public thank-you page", async () => {
+    const returnScript = await readFile(new URL("../public/return.js", import.meta.url), "utf8");
+
+    expect(returnScript).toContain('case "succeeded"');
+    expect(returnScript).toContain("https://ledgerline-compliance.sthomas935.chatgpt.site/thank-you");
+    expect(returnScript).toContain("window.location.replace(successfulPurchaseUrl)");
+  });
+
   it("reports test-only readiness without exposing secrets", async () => {
     const response = await request(createApp({ port: 4242, applicationBaseUrl: "http://127.0.0.1:4242" })).get("/health");
 
