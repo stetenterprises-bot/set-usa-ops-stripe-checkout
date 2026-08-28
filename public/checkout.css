@@ -7,6 +7,7 @@
 
 * { box-sizing: border-box; }
 body { margin: 0; min-height: 100vh; background: radial-gradient(circle at 15% 0%, #173c31 0, transparent 34rem), #08110f; }
+.set-transaction-bar{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:22px;min-height:58px;padding:9px clamp(18px,4vw,64px);border-bottom:1px solid #315348;background:#06100e;color:#f4f7f6}.set-transaction-brand{display:flex;align-items:baseline;gap:10px;color:inherit;text-decoration:none;white-space:nowrap}.set-transaction-brand strong{color:#71e4b8;font-size:1rem;letter-spacing:.08em}.set-transaction-brand span{font-size:.72rem;font-weight:700}.set-transaction-bar nav{display:flex;justify-content:center;gap:6px;min-width:0;overflow-x:auto}.set-transaction-bar nav a{display:inline-flex;align-items:center;min-height:34px;padding:0 11px;border:1px solid #315348;border-radius:999px;color:#d9e5e1;font-size:.66rem;font-weight:750;text-decoration:none;white-space:nowrap}.set-transaction-bar nav a:hover{border-color:#71e4b8;color:#71e4b8}.set-transaction-bar small{color:#789188;font-size:.61rem;white-space:nowrap}@media(max-width:980px){.set-transaction-bar{grid-template-columns:1fr auto}.set-transaction-bar nav{grid-column:1/-1;grid-row:2;justify-content:flex-start;padding-bottom:3px}.set-transaction-bar small{grid-column:2;grid-row:1}}@media(max-width:580px){.set-transaction-bar{display:flex;align-items:flex-start;flex-direction:column;gap:7px}.set-transaction-bar nav{width:100%}.set-transaction-bar small{white-space:normal}}
 
 .checkout-shell {
   display: grid;
@@ -24,8 +25,8 @@ body { margin: 0; min-height: 100vh; background: radial-gradient(circle at 15% 0
 .summary { background: #10241d; color: #f4f7f6; }
 .eyebrow { margin: 0 0 16px; color: #74e7bc; font-size: 0.78rem; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; }
 h1, h2 { margin: 0; font-family: Georgia, "Times New Roman", serif; font-weight: 500; line-height: 1.05; }
-h1 { font-size: clamp(2.5rem, 5vw, 4.6rem); }
-h2 { font-size: clamp(2rem, 4vw, 3rem); }
+h1 { font-size: clamp(2.35rem, 5vw, 3.9rem); }
+h2 { font-size: clamp(1.8rem, 4vw, 2.7rem); }
 .description { margin: 24px 0; max-width: 40rem; color: #bcd0c8; line-height: 1.7; }
 .price { display: flex; align-items: baseline; gap: 12px; margin: 32px 0; }
 .price span:first-child { font-size: 2.5rem; font-weight: 750; }

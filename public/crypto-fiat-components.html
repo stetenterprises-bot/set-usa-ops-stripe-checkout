@@ -10,8 +10,15 @@
     <script src="/assets/crypto-fiat-components.js" defer></script>
   </head>
   <body>
+    <header class="set-transaction-bar">
+      <a class="set-transaction-brand" href="https://ledgerline-compliance.sthomas935.chatgpt.site/"><strong>SET</strong><span>Simple. Easy. Transactions.</span></a>
+      <nav aria-label="SET transactions">
+        <a href="/checkout">USD $495</a><a href="/checkout/workflow-improvement-review-297-usd">USD $297</a><a href="/checkout/workflow-improvement-review-297-eur">EUR €297</a><a href="/checkout/open-payment">Open Payment</a><a href="/crypto-fiat">Crypto Purchase</a><a href="/private/embedded-onramp-OPoWPWqwaOqszCJaOMmp-wiY">Embedded Onramp</a>
+      </nav>
+      <small>SET Consults · a member of SET Enterprises</small>
+    </header>
     <main>
-      <header><a href="/checkout" class="brand">SET Business Consults</a><span class="mode">Stripe Embedded Components · Private Preview</span></header>
+      <header><a href="/checkout" class="brand">SET Consults · Simple. Easy. Transactions.</a><span class="mode">Stripe Embedded Components · Private Preview</span></header>
       <section class="intro"><p class="eyebrow">CRYPTO - FIAT / COMPONENTS</p><h1>Buy USDC into your Base wallet.</h1><p>Authenticate with Link, connect your wallet address, and complete payment through Stripe’s embedded controls. Available to eligible users in the United States, excluding New York.</p></section>
       <section class="panel" id="auth-panel">
         <form id="auth-form"><label for="email">Link email</label><input id="email" type="email" autocomplete="email" required /><label for="phone">Mobile number</label><input id="phone" type="tel" autocomplete="tel" placeholder="+12125551234" required /><button type="submit">Continue with Link</button></form>
