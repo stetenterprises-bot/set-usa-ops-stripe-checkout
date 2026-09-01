@@ -39,6 +39,7 @@ describe("customer purchase schema migration", () => {
       typeof call[0] === "string" && call[0].includes("CREATE TABLE IF NOT EXISTS customer_onramp_requests"));
     expect(migrationStatements).toHaveLength(2);
     expect(migrationStatements[0]?.[0]).toContain("ALTER TABLE customer_onramp_requests ADD COLUMN IF NOT EXISTS entitlement_status");
+    expect(migrationStatements[0]?.[0]).toContain("CREATE TABLE IF NOT EXISTS agentic_readiness_assessments");
     expect(calls.filter((call) => typeof call[0] === "string" && call[0].includes("ON CONFLICT (migration_id) DO NOTHING"))).toHaveLength(2);
   });
 });

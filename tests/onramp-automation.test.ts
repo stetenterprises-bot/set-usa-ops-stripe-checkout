@@ -11,6 +11,7 @@ import {
   validateQuoteSnapshot,
   type QuoteSnapshot
 } from "../src/onramp-automation.js";
+import { createEmbeddedOnrampSession } from "../src/onramp.js";
 
 const now = new Date("2030-01-01T00:00:00.000Z");
 const quote: QuoteSnapshot = {
@@ -27,6 +28,31 @@ const quote: QuoteSnapshot = {
 const walletAddress = "0x0000000000000000000000000000000000000001";
 
 describe("disjoint Stripe Embedded Onramp automation", () => {
+  it("uses the current flattened Onramp create parameters and the supplied idempotency key", async () => {
+    const rawRequest = vi.fn().mockResolvedValue({ data: { id: "cos_test", status: "initialized" } });
+    await createEmbeddedOnrampSession({ rawRequest } as never, {
+      network: "ethereum",
+      currency: "usdc",
+      walletAddress,
+      idempotencyKey: "embedded-onramp-test-1"
+    });
+
+    expect(rawRequest).toHaveBeenCalledWith(
+      "POST",
+      "/v1/crypto/onramp_sessions",
+      expect.objectContaining({
+        destination_currency: "usdc",
+        destination_network: "ethereum",
+        destination_currencies: ["usdc"],
+        destination_networks: ["ethereum"],
+        wallet_addresses: { ethereum: walletAddress },
+        lock_wallet_address: true
+      }),
+      { idempotencyKey: "embedded-onramp-test-1" }
+    );
+    expect(rawRequest.mock.calls[0]?.[2]).not.toHaveProperty("transaction_details");
+  });
+
   it("builds a deterministic, quote-bound session request", () => {
     const first = buildOnrampSessionRequest({
       requestId: "req_abc123",
@@ -47,14 +73,12 @@ describe("disjoint Stripe Embedded Onramp automation", () => {
       request: {
         idempotencyKey: "set-onramp-req_abc123-3",
         params: {
-          transaction_details: {
-            source_currency: "usd",
-            source_amount: "30.00",
-            destination_currency: "usdc",
-            destination_network: "ethereum",
-            destination_currencies: ["usdc"],
-            destination_networks: ["ethereum"]
-          },
+          source_currency: "usd",
+          source_amount: "30.00",
+          destination_currency: "usdc",
+          destination_network: "ethereum",
+          destination_currencies: ["usdc"],
+          destination_networks: ["ethereum"],
           wallet_addresses: { ethereum: walletAddress },
           lock_wallet_address: true
         }
@@ -72,7 +96,7 @@ describe("disjoint Stripe Embedded Onramp automation", () => {
     }, now);
     expect(built).toMatchObject({
       ok: true,
-      request: { params: { wallet_addresses: { base: walletAddress }, transaction_details: { destination_network: "base" } } }
+      request: { params: { wallet_addresses: { base: walletAddress }, destination_network: "base" } }
     });
   });
 

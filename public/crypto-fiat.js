@@ -10,6 +10,7 @@ const startOverButton = document.querySelector("#start-over");
 
 let config;
 let session;
+let sessionIdempotencyKey;
 const privateBasePath = window.location.pathname.replace(/\/$/, "");
 
 function setStatus(message, isError = false) {
@@ -38,9 +39,10 @@ form.addEventListener("submit", async (event) => {
   button.disabled = true;
   setStatus("Creating a secure Stripe Onramp session…");
   try {
+    sessionIdempotencyKey ||= crypto.randomUUID();
     const response = await fetch(`${privateBasePath}/session`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      headers: { "Content-Type": "application/json", Accept: "application/json", "Idempotency-Key": sessionIdempotencyKey },
       body: JSON.stringify({ network, currency, walletAddress: walletInput.value, confirmed: true })
     });
     const data = await response.json();
@@ -66,6 +68,7 @@ form.addEventListener("submit", async (event) => {
 startOverButton.addEventListener("click", () => {
   onrampElement.replaceChildren();
   session = undefined;
+  sessionIdempotencyKey = undefined;
   onrampPanel.hidden = true;
   setupPanel.hidden = false;
   confirmedInput.checked = false;

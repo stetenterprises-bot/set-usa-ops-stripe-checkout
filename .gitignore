@@ -3,12 +3,6 @@ dist/
 coverage/
 *.log
 .data/
-.agents/
-.claude/
-.cursor/
-.cursorignore
-AGENTS.md
-CLAUDE.md
 
 .projects/cache
 .projects/vault

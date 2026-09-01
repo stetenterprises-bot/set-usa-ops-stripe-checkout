@@ -71,6 +71,22 @@ CREATE TABLE IF NOT EXISTS customer_onramp_recovery_queue (
   lease_expires_at TIMESTAMPTZ
 );
 
+CREATE TABLE IF NOT EXISTS agentic_readiness_assessments (
+  idempotency_key TEXT PRIMARY KEY,
+  request_hash TEXT NOT NULL,
+  normalized_input JSONB NOT NULL,
+  payment_receipt JSONB,
+  receipt_reference TEXT UNIQUE,
+  artifact JSONB,
+  artifact_hash TEXT,
+  fulfillment_status TEXT NOT NULL DEFAULT 'prepared' CHECK (fulfillment_status IN ('prepared', 'paid', 'fulfilled', 'recovery_required')),
+  retry_count INTEGER NOT NULL DEFAULT 0,
+  last_error TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  fulfilled_at TIMESTAMPTZ
+);
+
 -- Keep upgrades from an earlier version of this migration safe. CREATE TABLE
 -- IF NOT EXISTS does not add columns to an already-existing table.
 ALTER TABLE customer_onramp_requests ADD COLUMN IF NOT EXISTS source_amount TEXT;
@@ -100,3 +116,5 @@ CREATE INDEX IF NOT EXISTS idx_customer_onramp_session ON customer_onramp_reques
 CREATE INDEX IF NOT EXISTS idx_customer_onramp_recovery_due ON customer_onramp_recovery_queue(next_attempt_at) WHERE resolved_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_customer_onramp_recovery_claim ON customer_onramp_recovery_queue(next_attempt_at, lease_expires_at)
   WHERE resolved_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_agentic_readiness_recovery ON agentic_readiness_assessments(updated_at)
+  WHERE fulfillment_status IN ('paid', 'recovery_required');

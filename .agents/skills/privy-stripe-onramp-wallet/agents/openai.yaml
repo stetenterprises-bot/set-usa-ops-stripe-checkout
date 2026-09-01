@@ -1,0 +1,4 @@
+interface:
+  display_name: "Privy Stripe Onramp Wallet"
+  short_description: "Guide Privy wallets and Stripe onramp"
+  default_prompt: "Use $privy-stripe-onramp-wallet to guide me through acquiring crypto into a user-owned Privy wallet."

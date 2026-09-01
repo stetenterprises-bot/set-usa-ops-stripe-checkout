@@ -59,20 +59,21 @@ function normalizedIp(value: string | undefined): string | undefined {
 
 export async function createEmbeddedOnrampSession(
   stripe: Stripe,
-  input: { network: string; currency: string; walletAddress: string; customerIp?: string }
+  input: { network: string; currency: string; walletAddress: string; idempotencyKey?: string; customerIp?: string }
 ): Promise<CryptoOnrampSession> {
   const response = await stripe.rawRequest(
     "POST",
     "/v1/crypto/onramp_sessions",
     {
-      transaction_details: {
-        destination_currency: input.currency,
-        destination_network: input.network
-      },
+      destination_currency: input.currency,
+      destination_network: input.network,
+      destination_currencies: [input.currency],
+      destination_networks: [input.network],
       wallet_addresses: { [input.network]: input.walletAddress },
+      lock_wallet_address: true,
       ...(normalizedIp(input.customerIp) ? { customer_ip_address: normalizedIp(input.customerIp) } : {})
     },
-    { idempotencyKey: `set-embedded-onramp-${crypto.randomUUID()}` }
+    { idempotencyKey: input.idempotencyKey ?? `set-embedded-onramp-${crypto.randomUUID()}` }
   );
   return response.data as CryptoOnrampSession;
 }

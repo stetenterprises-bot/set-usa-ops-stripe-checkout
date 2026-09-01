@@ -147,15 +147,13 @@ export type OnrampSessionInput = {
 
 export type OnrampSessionRequest = {
   params: {
-    transaction_details: {
-      source_currency: string;
-      destination_currency: OnrampCurrency;
-      destination_network: OnrampNetwork;
-      destination_currencies: [OnrampCurrency];
-      destination_networks: [OnrampNetwork];
-      source_amount?: string;
-      destination_amount?: string;
-    };
+    source_currency: string;
+    destination_currency: OnrampCurrency;
+    destination_network: OnrampNetwork;
+    destination_currencies: [OnrampCurrency];
+    destination_networks: [OnrampNetwork];
+    source_amount?: string;
+    destination_amount?: string;
     wallet_addresses: { [network: string]: string };
     lock_wallet_address: true;
     customer_ip_address?: string;
@@ -195,12 +193,12 @@ export function buildOnrampSessionRequest(input: OnrampSessionInput, now = new D
   if (input.idempotencyKey !== undefined && input.idempotencyKey !== idempotencyKey) {
     return { ok: false, code: "idempotency_mismatch", error: "The idempotency key must be bound to requestId and approvalVersion." };
   }
-  const transactionDetails: OnrampSessionRequest["params"]["transaction_details"] = {
+  const transactionDetails = {
     source_currency: quote.sourceCurrency,
     destination_currency: quote.destinationCurrency,
     destination_network: quote.destinationNetwork,
-    destination_currencies: [quote.destinationCurrency],
-    destination_networks: [quote.destinationNetwork],
+    destination_currencies: [quote.destinationCurrency] as [OnrampCurrency],
+    destination_networks: [quote.destinationNetwork] as [OnrampNetwork],
     ...(quote.sourceAmount !== null ? { source_amount: quote.sourceAmount } : {}),
     ...(quote.destinationAmount !== null ? { destination_amount: quote.destinationAmount } : {})
   };
@@ -212,7 +210,7 @@ export function buildOnrampSessionRequest(input: OnrampSessionInput, now = new D
     ok: true,
     request: {
       params: {
-        transaction_details: transactionDetails,
+        ...transactionDetails,
         wallet_addresses: { [quote.destinationNetwork]: walletAddress },
         lock_wallet_address: true,
         ...(customerIp ? { customer_ip_address: customerIp } : {})

@@ -7,6 +7,13 @@ import {
   InMemoryStripeAppEventStore,
   PostgresStripeAppEventStore
 } from "../src/stripe-app.js";
+import { InMemoryReadinessAssessmentStore } from "../src/readiness-assessment-store.js";
+import { readinessDomains, type ReadinessAssessmentInput } from "../src/readiness-assessment.js";
+
+const readinessInput = (): ReadinessAssessmentInput => ({
+  workflow: { name: "Test agent checkout", intendedUsers: "agents", targetEnvironment: "sandbox" },
+  capabilities: Object.fromEntries(readinessDomains.map((domain) => [domain, { status: "unknown" }])) as ReadinessAssessmentInput["capabilities"]
+});
 
 describe("development server", () => {
   it("redirects only a Stripe-confirmed successful payment to the public thank-you page", async () => {
@@ -36,7 +43,7 @@ describe("development server", () => {
       purchasingConfigured: false,
       purchasingWebhookConfigured: false,
       mppConfigured: false,
-      mppPrice: { amount: "0.50", currency: "usd", unit: "api_call" },
+      mppPrice: { amount: "0.50", currency: "usd", unit: "readiness_assessment" },
       privyConfigured: false,
       privy: {
         apiBaseUrl: "https://api.privy.io",
@@ -194,6 +201,7 @@ describe("development server", () => {
     });
     const response = await request(app)
       .post("/private/embedded-onramp-OPoWPWqwaOqszCJaOMmp-wiY/session")
+      .set("idempotency-key", "embedded-onramp-test-1")
       .send({ network: "ethereum", currency: "usdc", walletAddress: "0x0000000000000000000000000000000000000000" });
     expect(response.status).toBe(400);
     expect(response.body.error).toContain("Confirm the wallet");
@@ -276,10 +284,10 @@ describe("development server", () => {
       stripePublishableKey: ["pk", "live", "unitvalue"].join("_"),
       stripeWebhookSecret: ["whsec", "unitvalue"].join("_"),
       stripeProfileId: "profile_unitvalue"
-    });
+    }, { readinessAssessmentStore: new InMemoryReadinessAssessmentStore() });
 
     expect((await request(app).post("/stripe/accounts").send({ country: "US" })).status).toBe(404);
-    expect((await request(app).post("/paid").send({ prompt: "test" })).status).toBe(402);
+    expect((await request(app).post("/paid").set("idempotency-key", "assessment-live-1").send(readinessInput())).status).toBe(402);
   });
 
   it("challenges each paid API call for exactly 0.50 USD", async () => {
@@ -288,9 +296,12 @@ describe("development server", () => {
       applicationBaseUrl: "http://127.0.0.1:4242",
       stripeApiKey: ["sk", "test", "unitvalue"].join("_"),
       stripeProfileId: "profile_test_unitvalue"
-    });
+    }, { readinessAssessmentStore: new InMemoryReadinessAssessmentStore() });
 
-    const response = await request(app).post("/paid").send({ prompt: "test" });
+    const response = await request(app)
+      .post("/paid")
+      .set("idempotency-key", "assessment-test-1")
+      .send(readinessInput());
 
     expect(response.status).toBe(402);
     const challenge = response.headers["www-authenticate"] as string;
@@ -299,6 +310,45 @@ describe("development server", () => {
     expect(encodedRequest).toBeDefined();
     const paymentRequest = JSON.parse(Buffer.from(encodedRequest!, "base64url").toString("utf8"));
     expect(paymentRequest).toMatchObject({ amount: "50", currency: "usd" });
+  });
+
+  it("rejects invalid readiness input before issuing a payment challenge", async () => {
+    const app = createApp({
+      port: 4242,
+      applicationBaseUrl: "http://127.0.0.1:4242",
+      stripeApiKey: ["sk", "test", "unitvalue"].join("_"),
+      stripeProfileId: "profile_test_unitvalue"
+    }, { readinessAssessmentStore: new InMemoryReadinessAssessmentStore() });
+
+    const response = await request(app).post("/paid").set("idempotency-key", "assessment-test-2").send({ prompt: "test" });
+
+    expect(response.status).toBe(400);
+    expect(response.headers["www-authenticate"]).toBeUndefined();
+  });
+
+  it("recovers an already-paid readiness artifact without issuing another challenge", async () => {
+    const store = new InMemoryReadinessAssessmentStore();
+    const input = readinessInput();
+    await store.prepare("assessment-recovery-1", input);
+    await store.recordPayment("assessment-recovery-1", {
+      method: "stripe",
+      reference: "pi_recovery_1",
+      status: "success",
+      timestamp: "2026-09-01T00:00:00.000Z"
+    });
+    const app = createApp({
+      port: 4242,
+      applicationBaseUrl: "http://127.0.0.1:4242"
+    }, { readinessAssessmentStore: store });
+
+    const response = await request(app)
+      .post("/paid/recover")
+      .set("idempotency-key", "assessment-recovery-1")
+      .send(input);
+
+    expect(response.status).toBe(200);
+    expect(response.headers["www-authenticate"]).toBeUndefined();
+    expect(response.body).toMatchObject({ type: "agentic_commerce_readiness_assessment", receiptReference: "pi_recovery_1" });
   });
 
   it("verifies signed Stripe App drawer requests and returns only readiness gates", async () => {

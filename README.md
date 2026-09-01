@@ -46,7 +46,13 @@ The Node service creates sessions with `StripeClient.rawRequest("POST", "/v1/cry
 
 Embedded Components remains a separate private-preview integration and requires Stripe-provisioned Link OAuth credentials. Those credentials are not required by this Embedded Onramp fallback.
 
-`POST /paid` uses Stripe MPP to charge **$0.50 USD for every successful API call**. An unpaid request receives an HTTP 402 challenge; a caller with a valid Shared Payment Token retries the request and receives both the JSON result and an MPP payment receipt.
+`POST /paid` uses Stripe MPP to charge **$0.50 USD for one Agentic Commerce Readiness Assessment**. It accepts a bounded capability declaration and returns a versioned `agentic_commerce_readiness_assessment`. An unpaid valid request receives an HTTP 402 challenge; invalid input is rejected before a challenge is issued.
+
+Every request requires an `Idempotency-Key`. Before payment, the service durably binds that key to the normalized request hash. The signed MPP scope contains both values, preventing a credential issued for one assessment from fulfilling a different body or key. The verified MPP receipt and resulting artifact are persisted; an identical replay returns the stored artifact, while conflicting key reuse returns `409`.
+
+If the original paid response is lost after receipt persistence, resend the identical body and key to `POST /paid/recover`. Recovery never initiates payment. If no durable receipt exists, the route fails closed instead of inventing a receipt or requesting another payment.
+
+Submitted capability evidence is labeled `user_reported` or `unknown`; the disposition is a deterministic inference, not independent provider verification. The response always sets `executionAuthorized: false`. This workflow does not create a `$495` engagement, Privy wallet, Onramp session, customer payment/KYC flow, crypto transaction, or SET execution-wallet action.
 
 The discovery document is available at `GET /openapi.json`. Configure a Stripe profile that matches the selected Stripe mode before starting the paid endpoint:
 

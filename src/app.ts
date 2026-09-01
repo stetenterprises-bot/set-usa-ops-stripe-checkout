@@ -43,6 +43,13 @@ import {
   type PurchasingOrchestratorOptions
 } from "./purchasing-orchestrator.js";
 import { registerPurchasingRoutes } from "./purchasing-routes.js";
+import {
+  AssessmentConflictError,
+  AssessmentReceiptPendingError,
+  PostgresReadinessAssessmentStore,
+  type ReadinessAssessmentStore
+} from "./readiness-assessment-store.js";
+import { readinessRequestHash, validateReadinessAssessmentInput, type ReadinessAssessmentInput } from "./readiness-assessment.js";
 
 const HANDLED_STRIPE_EVENTS = new Set([
   "payment_intent.created",
@@ -76,6 +83,7 @@ export type AppDependencies = {
   purchasingOrchestratorFactory?: (config: RuntimeConfig, stripe: Stripe | undefined) => CustomerPurchasingOrchestrator | undefined;
   /** Alias retained for callers that name factories with a create prefix. */
   createPurchasingOrchestrator?: (config: RuntimeConfig, stripe: Stripe | undefined) => CustomerPurchasingOrchestrator | undefined;
+  readinessAssessmentStore?: ReadinessAssessmentStore;
 };
 
 export function createDefaultPurchasingOrchestrator(
@@ -132,6 +140,8 @@ export function createApp(config: RuntimeConfig, dependencies: AppDependencies =
     ?? dependencies.purchasingOrchestratorFactory?.(config, stripe)
     ?? dependencies.createPurchasingOrchestrator?.(config, stripe)
     ?? createDefaultPurchasingOrchestrator(config, stripe);
+  const readinessAssessmentStore = dependencies.readinessAssessmentStore
+    ?? (config.agenticEventsDatabaseUrl ? new PostgresReadinessAssessmentStore(config.agenticEventsDatabaseUrl) : undefined);
   const testIntegration = stripeMode === "test" ? integration : undefined;
   const machinePayments = stripe && config.stripeProfileId
     ? stripeMachinePayments.create({
@@ -151,12 +161,18 @@ export function createApp(config: RuntimeConfig, dependencies: AppDependencies =
           .digest("base64")
       })
     : undefined;
-  const paidApi = mppx?.charge({
+  const paidApi = mppx && readinessAssessmentStore ? mppx.charge({
     amount: "0.50",
     currency: "usd",
     decimals: 2,
-    description: "SET USA Ops API call",
+    description: "SET Agentic Commerce Readiness Assessment",
     scope: "POST /paid"
+  }) : undefined;
+  mppx?.onPaymentSuccess(async ({ input, receipt }) => {
+    if (!readinessAssessmentStore || !(input instanceof Request)) return;
+    const idempotencyKey = input.headers.get("idempotency-key");
+    if (!idempotencyKey) return;
+    await readinessAssessmentStore.recordPayment(idempotencyKey, receipt);
   });
 
   app.disable("x-powered-by");
@@ -188,7 +204,7 @@ export function createApp(config: RuntimeConfig, dependencies: AppDependencies =
       purchasingConfigured: Boolean(purchasingOrchestrator),
       purchasingWebhookConfigured: Boolean(config.stripeWebhookSecret && purchasingOrchestrator),
       mppConfigured: Boolean(paidApi),
-      mppPrice: { amount: "0.50", currency: "usd", unit: "api_call" },
+      mppPrice: { amount: "0.50", currency: "usd", unit: "readiness_assessment" },
       privyConfigured: Boolean(config.privyAppId && config.privyAppSecret),
       privy: {
         apiBaseUrl: PRIVY_API_BASE_URL,
@@ -487,10 +503,14 @@ export function createApp(config: RuntimeConfig, dependencies: AppDependencies =
   app.post(`${PRIVATE_EMBEDDED_ONRAMP_PATH}/session`, async (request, response) => {
     response.setHeader("Cache-Control", "no-store");
     if (!stripe || !config.stripePublishableKey || !config.stripeWebhookSecret || !config.agenticEventsDatabaseUrl) return response.status(503).json({ error: "Stripe Embedded Onramp is awaiting complete production configuration." });
+    const idempotencyKey = request.header("idempotency-key");
+    if (!idempotencyKey || !/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(idempotencyKey)) {
+      return response.status(400).json({ error: "A valid Idempotency-Key containing 8 to 128 safe characters is required." });
+    }
     const input = validateOnrampRequest(request.body);
     if (!input.ok) return response.status(400).json({ error: input.error });
     try {
-      const onrampSession = await createEmbeddedOnrampSession(stripe, { network: input.network, currency: input.currency, walletAddress: input.walletAddress, ...(request.ip ? { customerIp: request.ip } : {}) });
+      const onrampSession = await createEmbeddedOnrampSession(stripe, { network: input.network, currency: input.currency, walletAddress: input.walletAddress, idempotencyKey, ...(request.ip ? { customerIp: request.ip } : {}) });
       if (!onrampSession.client_secret) throw new Error("Stripe returned no client secret.");
       return response.status(201).json({ clientSecret: onrampSession.client_secret, sessionId: onrampSession.id });
     } catch { return response.status(502).json({ error: "Stripe could not create an Embedded Onramp session. Confirm Onramp approval and the allowlisted domain in Dashboard." }); }
@@ -501,28 +521,129 @@ export function createApp(config: RuntimeConfig, dependencies: AppDependencies =
       service: "SET USA Ops paid API",
       paidEndpoint: "POST /paid",
       discovery: "/openapi.json",
-      price: { amount: "0.50", currency: "usd", unit: "api_call" }
+      price: { amount: "0.50", currency: "usd", unit: "readiness_assessment" }
     });
   });
 
+  if (readinessAssessmentStore) {
+    const recoveryStore = readinessAssessmentStore;
+    app.post("/paid/recover", async (request, response) => {
+      const idempotencyKey = request.header("idempotency-key");
+      if (!idempotencyKey) return response.status(400).json({ error: "Idempotency-Key is required.", code: "invalid_request" });
+      const validation = validateReadinessAssessmentInput(request.body);
+      if (!validation.ok) return response.status(400).json({ error: validation.error, code: "invalid_request" });
+      try {
+        const artifact = await recoveryStore.fulfill(idempotencyKey, validation.input);
+        response.setHeader("Cache-Control", "no-store");
+        return response.json(artifact);
+      } catch (cause) {
+        if (cause instanceof AssessmentReceiptPendingError) {
+          return response.status(409).json({ error: cause.message, code: "receipt_reconciliation_required" });
+        }
+        if (cause instanceof AssessmentConflictError) return response.status(404).json({ error: cause.message, code: "not_found" });
+        return response.status(503).json({ error: "Readiness recovery is unavailable.", code: "configuration_required" });
+      }
+    });
+  } else {
+    app.post("/paid/recover", (_request, response) => {
+      response.status(503).json({ error: "Readiness persistence is not configured.", code: "configuration_required" });
+    });
+  }
+
   if (mppx && paidApi) {
+    const assessmentStore = readinessAssessmentStore!;
+    const capabilitySchema = {
+      type: "object",
+      additionalProperties: false,
+      required: ["status"],
+      properties: {
+        status: { type: "string", enum: ["implemented", "partial", "missing", "unknown"] },
+        evidence: { type: "array", maxItems: 5, items: { type: "string", minLength: 1, maxLength: 240 } }
+      }
+    };
     discovery(app, mppx, {
-      info: { title: "SET USA Ops paid API", version: "1.0.0" },
+      info: { title: "SET Agentic Commerce Readiness Assessment", version: "1.0.0" },
       routes: [{
         method: "POST",
         path: "/paid",
         handler: paidApi,
-        summary: "Return one payment-gated API response",
-        requestBody: { type: "object", additionalProperties: true }
+        summary: "Return one deterministic, payment-gated readiness assessment",
+        requestBody: {
+          type: "object",
+          additionalProperties: false,
+          required: ["workflow", "capabilities"],
+          properties: {
+            workflow: {
+              type: "object",
+              additionalProperties: false,
+              required: ["name", "intendedUsers", "targetEnvironment"],
+              properties: {
+                name: { type: "string", minLength: 1, maxLength: 120 },
+                intendedUsers: { type: "string", enum: ["humans", "agents", "both"] },
+                targetEnvironment: { type: "string", enum: ["sandbox", "production"] }
+              }
+            },
+            capabilities: {
+              type: "object",
+              additionalProperties: false,
+              required: [
+                "machine_discovery", "payment_challenge_and_receipt", "idempotency", "webhook_verification",
+                "durable_fulfillment", "user_authentication", "wallet_ownership", "onramp_provider_handoff",
+                "delivery_evidence", "recovery_and_reconciliation"
+              ],
+              properties: Object.fromEntries([
+                "machine_discovery", "payment_challenge_and_receipt", "idempotency", "webhook_verification",
+                "durable_fulfillment", "user_authentication", "wallet_ownership", "onramp_provider_handoff",
+                "delivery_evidence", "recovery_and_reconciliation"
+              ].map((domain) => [domain, capabilitySchema]))
+            }
+          }
+        }
       }]
     });
 
-    app.post("/paid", paidApi, (request, response) => {
-      response.json({
-        data: "Payment authorized.",
-        request: request.body ?? null
-      });
-    });
+    app.post(
+      "/paid",
+      async (request, response, next) => {
+        const idempotencyKey = request.header("idempotency-key");
+        if (!idempotencyKey) return response.status(400).json({ error: "Idempotency-Key is required.", code: "invalid_request" });
+        const validation = validateReadinessAssessmentInput(request.body);
+        if (!validation.ok) return response.status(400).json({ error: validation.error, code: "invalid_request" });
+        try {
+          await assessmentStore.prepare(idempotencyKey, validation.input);
+          response.locals.readinessInput = validation.input;
+          response.locals.readinessIdempotencyKey = idempotencyKey;
+          response.locals.readinessPaymentScope = `POST /paid:${idempotencyKey}:${readinessRequestHash(validation.input)}`;
+          next();
+        } catch (cause) {
+          if (cause instanceof AssessmentConflictError) return response.status(409).json({ error: cause.message, code: "idempotency_conflict" });
+          return response.status(503).json({ error: "Readiness persistence is unavailable; no payment challenge was issued.", code: "configuration_required" });
+        }
+      },
+      (request, response, next) => mppx.charge({
+        amount: "0.50",
+        currency: "usd",
+        decimals: 2,
+        description: "SET Agentic Commerce Readiness Assessment",
+        scope: response.locals.readinessPaymentScope as string
+      })(request, response, next),
+      async (_request, response) => {
+        try {
+          const artifact = await assessmentStore.fulfill(
+            response.locals.readinessIdempotencyKey as string,
+            response.locals.readinessInput as ReadinessAssessmentInput
+          );
+          response.setHeader("Cache-Control", "no-store");
+          return response.json(artifact);
+        } catch (cause) {
+          if (cause instanceof AssessmentConflictError) return response.status(409).json({ error: cause.message, code: "idempotency_conflict" });
+          if (cause instanceof AssessmentReceiptPendingError) {
+            return response.status(503).json({ error: cause.message, code: "receipt_reconciliation_required" });
+          }
+          return response.status(503).json({ error: "Paid readiness fulfillment requires recovery against this same Idempotency-Key.", code: "fulfillment_recovery_required" });
+        }
+      }
+    );
   } else {
     app.get("/openapi.json", (_request, response) => {
       response.status(503).json({ error: "MPP is not configured." });
