@@ -30,6 +30,11 @@ describe("development server", () => {
       webhookConfigured: false,
       cryptoOnrampConfigured: false,
       cryptoEmbeddedComponentsConfigured: false,
+      purchaseStoreConfigured: false,
+      privyAuthenticationConfigured: false,
+      purchaseApprovalConfigured: false,
+      purchasingConfigured: false,
+      purchasingWebhookConfigured: false,
       mppConfigured: false,
       mppPrice: { amount: "0.50", currency: "usd", unit: "api_call" },
       privyConfigured: false,
@@ -99,6 +104,72 @@ describe("development server", () => {
     const app = createApp({ port: 4242, applicationBaseUrl: "http://127.0.0.1:4242" });
     expect((await request(app).get("/checkout/config")).status).toBe(503);
     expect((await request(app).post("/checkout/confirm-intent").send({ confirmationTokenId: "ct_test_example", customerEmail: "buyer@example.com" })).status).toBe(503);
+  });
+
+  it("fails closed for the durable purchasing routes when the bridge is unconfigured", async () => {
+    const app = createApp({ port: 4242, applicationBaseUrl: "http://127.0.0.1:4242" });
+
+    const create = await request(app)
+      .post("/purchasing/requests")
+      .send({ cryptocurrency: "USDC" });
+    expect(create.status).toBe(503);
+    expect(create.body).toMatchObject({ code: "configuration_required" });
+  });
+
+  it("uses the injected orchestrator for purchasing routes and signed Onramp events", async () => {
+    const webhookSecret = ["whsec", "purchasing", "unitvalue"].join("_");
+    const purchase = {
+      requestId: "req_app_purchase",
+      state: "intake",
+      version: 1,
+      asset: "USDC",
+      network: "base",
+      sourceCurrency: "USD",
+      sourceAmount: "30.00",
+      destinationAmount: "25.00",
+      wallet: null,
+      quote: null,
+      sessionId: null,
+      providerStatus: null,
+      deliveredAmount: null,
+      transactionId: null,
+      entitlement: { status: "locked", type: "verified_crypto_delivery", releasedAt: null }
+    };
+    const createPurchaseRequest = vi.fn().mockResolvedValue(purchase);
+    const processSignedWebhook = vi.fn().mockResolvedValue({ duplicate: false, purchase });
+    const orchestrator = {
+      createRequest: createPurchaseRequest,
+      processSignedWebhook
+    } as never;
+    const eventStore = { claim: vi.fn().mockResolvedValue(true) };
+    const app = createApp({
+      port: 4242,
+      applicationBaseUrl: "http://127.0.0.1:4242",
+      stripeWebhookSecret: webhookSecret
+    }, { purchasingOrchestrator: orchestrator, stripeAppEventStore: eventStore });
+
+    const createResponse = await request(app)
+      .post("/purchasing/requests")
+      .send({ cryptocurrency: "USDC" });
+    expect(createResponse.status).toBe(201);
+    expect(createPurchaseRequest).toHaveBeenCalledWith({ cryptocurrency: "USDC" }, undefined);
+
+    const payload = JSON.stringify({
+      id: "evt_purchasing_onramp",
+      object: "event",
+      type: "crypto.onramp_session.updated",
+      data: { object: { id: "cos_purchasing_session", status: "fulfillment_processing" } }
+    });
+    const signature = Stripe.webhooks.generateTestHeaderString({ payload, secret: webhookSecret });
+    const webhookResponse = await request(app)
+      .post("/webhooks/stripe")
+      .set("content-type", "application/json")
+      .set("stripe-signature", signature)
+      .send(payload);
+    expect(webhookResponse.status).toBe(200);
+    expect(webhookResponse.body).toMatchObject({ handled: true, duplicate: false, eventType: "crypto.onramp_session.updated" });
+    expect(processSignedWebhook).toHaveBeenCalledWith(expect.any(Buffer), signature, webhookSecret);
+    expect(eventStore.claim).not.toHaveBeenCalled();
   });
 
   it("serves the Components option while both crypto flows fail closed before configuration", async () => {

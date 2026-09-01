@@ -34,6 +34,15 @@ import {
   onrampPairs,
   validateOnrampRequest
 } from "./onramp.js";
+import { ONRAMP_WEBHOOK_EVENT_TYPE } from "./onramp-automation.js";
+import { createPrivyPurchaseBridge } from "./privy-bridge.js";
+import { PostgresPurchaseStore } from "./purchase-store.js";
+import {
+  asPurchasingError,
+  CustomerPurchasingOrchestrator,
+  type PurchasingOrchestratorOptions
+} from "./purchasing-orchestrator.js";
+import { registerPurchasingRoutes } from "./purchasing-routes.js";
 
 const HANDLED_STRIPE_EVENTS = new Set([
   "payment_intent.created",
@@ -42,7 +51,8 @@ const HANDLED_STRIPE_EVENTS = new Set([
   "payment_intent.succeeded",
   "payment_intent.payment_failed",
   "payment_intent.canceled",
-  "crypto.onramp_session.updated"
+  // Embedded Onramp events are handled by CustomerPurchasingOrchestrator and
+  // must never be claimed by the generic Stripe-App event store.
 ]);
 
 function normalizedEmail(value: unknown): string | null {
@@ -53,7 +63,51 @@ function normalizedEmail(value: unknown): string | null {
 
 export type AppDependencies = {
   stripeAppEventStore?: StripeAppEventStore;
+  purchasingOrchestrator?: CustomerPurchasingOrchestrator;
+  purchasingOrchestratorFactory?: (config: RuntimeConfig, stripe: Stripe | undefined) => CustomerPurchasingOrchestrator | undefined;
+  /** Alias retained for callers that name factories with a create prefix. */
+  createPurchasingOrchestrator?: (config: RuntimeConfig, stripe: Stripe | undefined) => CustomerPurchasingOrchestrator | undefined;
 };
+
+export function createDefaultPurchasingOrchestrator(
+  config: RuntimeConfig,
+  providedStripe?: Stripe
+): CustomerPurchasingOrchestrator | undefined {
+  const stripe = providedStripe ?? (config.stripeApiKey
+    ? new Stripe(config.stripeApiKey, { apiVersion: STRIPE_API_VERSION })
+    : undefined);
+  if (
+    !stripe ||
+    !config.agenticEventsDatabaseUrl ||
+    !config.privyAppId ||
+    !config.privyAppSecret ||
+    !config.privyJwtVerificationKey ||
+    !config.purchaseApprovalSigningKey
+  ) return undefined;
+
+  try {
+    const options: PurchasingOrchestratorOptions = {
+      store: new PostgresPurchaseStore(config.agenticEventsDatabaseUrl),
+      privy: createPrivyPurchaseBridge({
+        appId: config.privyAppId,
+        appSecret: config.privyAppSecret,
+        verificationKey: config.privyJwtVerificationKey
+      }),
+      stripe,
+      approvalSigningKey: config.purchaseApprovalSigningKey,
+      onrampMode: (config.stripeMode ?? "test") === "live" ? "live" : "sandbox"
+    };
+    return new CustomerPurchasingOrchestrator(options);
+  } catch (cause) {
+    // A partial provider configuration should leave the service available for
+    // non-purchasing routes while the purchasing surface fails closed.
+    console.warn(JSON.stringify({
+      kind: "purchasing_orchestrator_unavailable",
+      reason: cause instanceof Error ? cause.message : "invalid_configuration"
+    }));
+    return undefined;
+  }
+}
 
 export function createApp(config: RuntimeConfig, dependencies: AppDependencies = {}): express.Express {
   const app = express();
@@ -65,6 +119,10 @@ export function createApp(config: RuntimeConfig, dependencies: AppDependencies =
     ?? (config.agenticEventsDatabaseUrl
       ? new PostgresStripeAppEventStore(config.agenticEventsDatabaseUrl)
       : undefined);
+  const purchasingOrchestrator = dependencies.purchasingOrchestrator
+    ?? dependencies.purchasingOrchestratorFactory?.(config, stripe)
+    ?? dependencies.createPurchasingOrchestrator?.(config, stripe)
+    ?? createDefaultPurchasingOrchestrator(config, stripe);
   const testIntegration = stripeMode === "test" ? integration : undefined;
   const machinePayments = stripe && config.stripeProfileId
     ? stripeMachinePayments.create({
@@ -115,6 +173,11 @@ export function createApp(config: RuntimeConfig, dependencies: AppDependencies =
       webhookConfigured: Boolean(config.stripeWebhookSecret),
       cryptoOnrampConfigured: Boolean(config.stripeApiKey && config.stripePublishableKey && config.stripeWebhookSecret && config.agenticEventsDatabaseUrl),
       cryptoEmbeddedComponentsConfigured: Boolean(config.stripeApiKey && config.stripePublishableKey && config.stripeLinkOauthClientId && config.stripeLinkOauthClientSecret),
+      purchaseStoreConfigured: Boolean(config.agenticEventsDatabaseUrl),
+      privyAuthenticationConfigured: Boolean(config.privyAppId && config.privyAppSecret && config.privyJwtVerificationKey),
+      purchaseApprovalConfigured: Boolean(config.purchaseApprovalSigningKey),
+      purchasingConfigured: Boolean(purchasingOrchestrator),
+      purchasingWebhookConfigured: Boolean(config.stripeWebhookSecret && purchasingOrchestrator),
       mppConfigured: Boolean(paidApi),
       mppPrice: { amount: "0.50", currency: "usd", unit: "api_call" },
       privyConfigured: Boolean(config.privyAppId && config.privyAppSecret),
@@ -149,6 +212,31 @@ export function createApp(config: RuntimeConfig, dependencies: AppDependencies =
         );
 
         const eventType = event.type as string;
+        if (eventType === ONRAMP_WEBHOOK_EVENT_TYPE) {
+          if (!purchasingOrchestrator) {
+            response.status(503).json({ error: "The durable Stripe-Privy purchasing bridge is not fully configured.", code: "configuration_required" });
+            return;
+          }
+          try {
+            const result = await purchasingOrchestrator.processSignedWebhook(
+              request.body as Buffer,
+              signature,
+              config.stripeWebhookSecret
+            );
+            response.status(200).json({
+              received: true,
+              handled: true,
+              duplicate: result.duplicate,
+              eventId: event.id,
+              eventType: event.type,
+              purchase: result.purchase
+            });
+          } catch (cause) {
+            const issue = asPurchasingError(cause);
+            response.status(issue.status).json({ error: issue.message, code: issue.code });
+          }
+          return;
+        }
         const handled = HANDLED_STRIPE_EVENTS.has(eventType);
         const claimed = handled && stripeEventStore
           ? await stripeEventStore.claim({ eventId: event.id, eventType: event.type, accountId: event.account ?? null, livemode: event.livemode })
@@ -163,16 +251,6 @@ export function createApp(config: RuntimeConfig, dependencies: AppDependencies =
             paymentIntentId: paymentIntent.id,
             status: paymentIntent.status
           }));
-        } else if (claimed && eventType === "crypto.onramp_session.updated") {
-          const onrampSession = event.data.object as unknown as { id: string; status?: string; transaction_details?: { transaction_id?: string | null } };
-          console.info(JSON.stringify({
-            kind: "stripe_crypto_onramp_event",
-            eventId: event.id,
-            eventType,
-            onrampSessionId: onrampSession.id,
-            status: onrampSession.status ?? null,
-            transactionId: onrampSession.transaction_details?.transaction_id ?? null
-          }));
         }
         response.status(200).json({ received: true, handled, duplicate, eventId: event.id, eventType: event.type });
       } catch {
@@ -184,6 +262,7 @@ export function createApp(config: RuntimeConfig, dependencies: AppDependencies =
   registerStripeAppWebhookRoute(app, config, stripeEventStore);
 
   app.use(express.json({ limit: "100kb" }));
+  registerPurchasingRoutes(app, purchasingOrchestrator);
   registerMcpRoutes(app, config);
   registerStripeAppUiRoutes(app, config);
   app.use("/assets", express.static(publicDirectory, { index: false, fallthrough: false }));

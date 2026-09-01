@@ -26,6 +26,8 @@ export type RuntimeConfig = {
   mppSecretKey?: string;
   privyAppId?: string;
   privyAppSecret?: string;
+  privyJwtVerificationKey?: string;
+  purchaseApprovalSigningKey?: string;
   applicationBaseUrl: string;
 };
 
@@ -49,6 +51,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConfig 
   const mppSecretKey = optionalSecret(env.MPP_SECRET_KEY);
   const privyAppId = optionalSecret(env.PRIVY_APP_ID);
   const privyAppSecret = optionalSecret(env.PRIVY_APP_SECRET);
+  const privyJwtVerificationKey = optionalSecret(env.PRIVY_JWT_VERIFICATION_KEY);
+  const purchaseApprovalSigningKey = optionalSecret(env.PURCHASE_APPROVAL_SIGNING_KEY);
   const applicationBaseUrl = optionalSecret(env.APPLICATION_BASE_URL) ?? "http://localhost:4242";
   const port = Number(optionalSecret(env.PORT) ?? "4242");
 
@@ -86,6 +90,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConfig 
 
   if (Boolean(privyAppId) !== Boolean(privyAppSecret)) {
     throw new Error("PRIVY_APP_ID and PRIVY_APP_SECRET must be configured together.");
+  }
+
+  if (purchaseApprovalSigningKey && Buffer.byteLength(purchaseApprovalSigningKey, "utf8") < 32) {
+    throw new Error("PURCHASE_APPROVAL_SIGNING_KEY must contain at least 32 bytes.");
   }
 
   if (Boolean(stripeLinkOauthClientId) !== Boolean(stripeLinkOauthClientSecret)) {
@@ -144,6 +152,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConfig 
     ...(stripeProfileId ? { stripeProfileId } : {}),
     ...(mppSecretKey ? { mppSecretKey } : {}),
     ...(privyAppId ? { privyAppId } : {}),
-    ...(privyAppSecret ? { privyAppSecret } : {})
+    ...(privyAppSecret ? { privyAppSecret } : {}),
+    ...(privyJwtVerificationKey ? { privyJwtVerificationKey } : {}),
+    ...(purchaseApprovalSigningKey ? { purchaseApprovalSigningKey } : {})
   };
 }
