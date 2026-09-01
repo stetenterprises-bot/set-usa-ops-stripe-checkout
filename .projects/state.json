@@ -26,6 +26,16 @@
       "name": "mpp-hosting",
       "providerName": "Render",
       "serviceId": "web-service"
+    },
+    "privy-app": {
+      "name": "privy-app",
+      "providerName": "Privy",
+      "serviceId": "app"
+    },
+    "privy-plan": {
+      "name": "privy-plan",
+      "providerName": "Privy",
+      "serviceId": "free"
     }
   },
   "environments": {
@@ -41,6 +51,12 @@
         },
         {
           "resourceName": "mpp-hosting"
+        },
+        {
+          "resourceName": "privy-app"
+        },
+        {
+          "resourceName": "privy-plan"
         }
       ]
     }

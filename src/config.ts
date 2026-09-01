@@ -8,7 +8,6 @@ loadDotenv({
 export const STRIPE_API_VERSION = "2026-07-29.dahlia" as const;
 export const PRIVY_API_BASE_URL = "https://api.privy.io" as const;
 export const PRIVY_BASE_CHAIN_ID = 8453 as const;
-export const PRIVY_APP_ID = "cmt7hoxq900i20cl79s3r6sva" as const;
 
 export type RuntimeConfig = {
   port: number;
@@ -49,8 +48,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConfig 
   const agenticEventsDatabaseUrl = optionalSecret(env.AGENTIC_EVENTS_DB_URL);
   const stripeProfileId = optionalSecret(env.STRIPE_PROFILE_ID);
   const mppSecretKey = optionalSecret(env.MPP_SECRET_KEY);
-  const privyAppId = optionalSecret(env.PRIVY_APP_ID);
-  const privyAppSecret = optionalSecret(env.PRIVY_APP_SECRET);
+  const managedPrivyAppId = optionalSecret(env.PRIVY_PRIVY_APP_ID);
+  const managedPrivyAppSecret = optionalSecret(env.PRIVY_PRIVY_APP_SECRET);
+  if (Boolean(managedPrivyAppId) !== Boolean(managedPrivyAppSecret)) {
+    throw new Error("PRIVY_PRIVY_APP_ID and PRIVY_PRIVY_APP_SECRET must be configured together.");
+  }
+  // Stripe Projects prefixes Privy's exported names with the provider name.
+  // Prefer that managed pair while retaining the conventional names for other
+  // deployment environments.
+  const privyAppId = managedPrivyAppId ?? optionalSecret(env.PRIVY_APP_ID);
+  const privyAppSecret = managedPrivyAppSecret ?? optionalSecret(env.PRIVY_APP_SECRET);
   const privyJwtVerificationKey = optionalSecret(env.PRIVY_JWT_VERIFICATION_KEY);
   const purchaseApprovalSigningKey = optionalSecret(env.PURCHASE_APPROVAL_SIGNING_KEY);
   const applicationBaseUrl = optionalSecret(env.APPLICATION_BASE_URL) ?? "http://localhost:4242";
@@ -92,6 +99,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConfig 
     throw new Error("PRIVY_APP_ID and PRIVY_APP_SECRET must be configured together.");
   }
 
+  if (privyAppId && !/^[A-Za-z0-9_-]{10,128}$/.test(privyAppId)) {
+    throw new Error("The configured Privy app ID is invalid.");
+  }
+
   if (purchaseApprovalSigningKey && Buffer.byteLength(purchaseApprovalSigningKey, "utf8") < 32) {
     throw new Error("PURCHASE_APPROVAL_SIGNING_KEY must contain at least 32 bytes.");
   }
@@ -117,10 +128,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConfig 
 
   if (stripeMode === "live" && stripeAppWebhookSecret && !agenticEventsDatabaseUrl) {
     throw new Error("Live Stripe App events require AGENTIC_EVENTS_DB_URL for durable deduplication.");
-  }
-
-  if (privyAppId && privyAppId !== PRIVY_APP_ID) {
-    throw new Error(`PRIVY_APP_ID must be the approved app ${PRIVY_APP_ID}.`);
   }
 
   const parsedBaseUrl = new URL(applicationBaseUrl);

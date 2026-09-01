@@ -1,7 +1,6 @@
 import crypto, { type KeyObject } from "node:crypto";
+import { PrivyClient } from "@privy-io/node";
 
-/** The only Privy application this project is permitted to use. */
-export const PRIVY_APPROVED_APP_ID = "cmt7hoxq900i20cl79s3r6sva" as const;
 export const PRIVY_DEFAULT_API_BASE_URL = "https://api.privy.io" as const;
 
 const MAX_TOKEN_LENGTH = 16_384;
@@ -19,7 +18,7 @@ export type PrivyVerificationKey = JsonWebKey | string | KeyObject;
 export type VerifiedPrivyAccessToken = {
   userId: string;
   sessionId: string;
-  appId: typeof PRIVY_APPROVED_APP_ID;
+  appId: string;
   issuer: "privy.io";
   issuedAt: number;
   expiration: number;
@@ -146,14 +145,14 @@ function derEncodeEcdsaSignature(raw: Buffer): Buffer {
   return Buffer.concat([Buffer.from([0x30, body.length]), body]);
 }
 
-function assertAccessClaims(payload: Record<string, unknown>, nowSeconds: number): VerifiedPrivyAccessToken {
+function assertAccessClaims(payload: Record<string, unknown>, expectedAppId: string, nowSeconds: number): VerifiedPrivyAccessToken {
   const userId = payload.sub;
   const sessionId = payload.sid;
   const issuer = payload.iss;
   const audience = payload.aud;
   const issuedAt = payload.iat;
   const expiration = payload.exp;
-  const audienceMatches = audience === PRIVY_APPROVED_APP_ID || (Array.isArray(audience) && audience.includes(PRIVY_APPROVED_APP_ID));
+  const audienceMatches = audience === expectedAppId || (Array.isArray(audience) && audience.includes(expectedAppId));
   if (
     typeof userId !== "string" || !userId ||
     typeof sessionId !== "string" || !sessionId ||
@@ -165,13 +164,13 @@ function assertAccessClaims(payload: Record<string, unknown>, nowSeconds: number
   ) {
     fail("invalid_token", "Privy access token is invalid.", 401);
   }
-  return { userId, sessionId, appId: PRIVY_APPROVED_APP_ID, issuer: "privy.io", issuedAt, expiration };
+  return { userId, sessionId, appId: expectedAppId, issuer: "privy.io", issuedAt, expiration };
 }
 
 /** Verify a Privy access JWT locally. No unverified claims are ever returned. */
 export function verifyPrivyAccessToken(
   token: string,
-  options: { verificationKey?: PrivyVerificationKey; now?: () => number }
+  options: { appId: string; verificationKey?: PrivyVerificationKey; now?: () => number }
 ): VerifiedPrivyAccessToken {
   if (typeof token !== "string" || token.length === 0 || token.length > MAX_TOKEN_LENGTH) {
     fail("invalid_token", "Privy access token is invalid.", 401);
@@ -200,7 +199,7 @@ export function verifyPrivyAccessToken(
     fail("invalid_token", "Privy access token is invalid.", 401);
   }
   if (!valid) fail("invalid_token", "Privy access token is invalid.", 401);
-  return assertAccessClaims(payload, Math.floor((options.now?.() ?? Date.now()) / 1000));
+  return assertAccessClaims(payload, options.appId, Math.floor((options.now?.() ?? Date.now()) / 1000));
 }
 
 export function extractPrivyBearerToken(authorization: string | undefined): string {
@@ -276,7 +275,7 @@ export class PrivyPurchaseBridge {
   private readonly inflight = new Map<string, { fingerprint: string; promise: Promise<WalletPreparationResult> }>();
 
   constructor(options: PrivyBridgeOptions) {
-    if (options.appId !== PRIVY_APPROVED_APP_ID) fail("configuration_required", `Privy app must be the approved app ${PRIVY_APPROVED_APP_ID}.`, 503);
+    if (!/^[A-Za-z0-9_-]{10,128}$/.test(options.appId)) fail("configuration_required", "A valid Privy app ID is required.", 503);
     if (!options.verifyAccessToken && !options.verificationKey) fail("configuration_required", "Privy JWT verification is not configured.", 503);
     if (!options.api && (!options.appSecret || !options.appSecret.trim())) fail("configuration_required", "Privy API credentials are not configured.", 503);
     this.options = options;
@@ -293,8 +292,10 @@ export class PrivyPurchaseBridge {
     try {
       const claims = this.options.verifyAccessToken
         ? await this.options.verifyAccessToken(token)
-        : verifyPrivyAccessToken(token, this.options.verificationKey ? { verificationKey: this.options.verificationKey } : {});
-      if (claims.appId !== PRIVY_APPROVED_APP_ID || claims.issuer !== "privy.io" || !claims.userId) {
+        : verifyPrivyAccessToken(token, this.options.verificationKey
+          ? { appId: this.options.appId, verificationKey: this.options.verificationKey }
+          : { appId: this.options.appId });
+      if (claims.appId !== this.options.appId || claims.issuer !== "privy.io" || !claims.userId) {
         fail("invalid_token", "Privy access token is invalid.", 401);
       }
       return claims;
@@ -421,4 +422,33 @@ class PrivyRestWalletApi implements PrivyWalletApi {
   }
 }
 
-export const createPrivyPurchaseBridge = (options: PrivyBridgeOptions): PrivyPurchaseBridge => new PrivyPurchaseBridge(options);
+export const createPrivyPurchaseBridge = (options: PrivyBridgeOptions): PrivyPurchaseBridge => {
+  if (options.verifyAccessToken || options.verificationKey || !options.appSecret) {
+    return new PrivyPurchaseBridge(options);
+  }
+  const client = new PrivyClient({
+    appId: options.appId,
+    appSecret: options.appSecret,
+    ...(options.apiBaseUrl ? { apiUrl: options.apiBaseUrl } : {})
+  });
+  return new PrivyPurchaseBridge({
+    ...options,
+    verifyAccessToken: async (token) => {
+      const claims = await client.utils().auth().verifyAccessToken(token);
+      if (
+        claims.app_id !== options.appId ||
+        claims.issuer !== "privy.io" ||
+        !claims.user_id ||
+        !claims.session_id
+      ) fail("invalid_token", "Privy access token is invalid.", 401);
+      return {
+        userId: claims.user_id,
+        sessionId: claims.session_id,
+        appId: claims.app_id,
+        issuer: "privy.io",
+        issuedAt: claims.issued_at,
+        expiration: claims.expiration
+      };
+    }
+  });
+};

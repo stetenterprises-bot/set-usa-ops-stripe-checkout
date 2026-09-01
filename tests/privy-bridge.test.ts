@@ -1,7 +1,6 @@
 import crypto from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
-  PRIVY_APPROVED_APP_ID,
   PrivyBridgeError,
   PrivyPurchaseBridge,
   extractPrivyBearerToken,
@@ -9,6 +8,8 @@ import {
   type PrivyWalletApi,
   type PrivyWalletRecord
 } from "../src/privy-bridge.js";
+
+const PRIVY_TEST_APP_ID = "cmt_test_app_12345";
 
 const keyPair = crypto.generateKeyPairSync("ec", { namedCurve: "prime256v1" });
 const publicJwk = keyPair.publicKey.export({ format: "jwk" }) as JsonWebKey;
@@ -23,7 +24,7 @@ function accessToken(overrides: Record<string, unknown> = {}): string {
     sid: "session_1",
     sub: "did:privy:user_1",
     iss: "privy.io",
-    aud: PRIVY_APPROVED_APP_ID,
+    aud: PRIVY_TEST_APP_ID,
     iat: 1_700_000_000,
     exp: 2_000_000_000,
     ...overrides
@@ -67,18 +68,18 @@ function fakeApi(wallets: readonly PrivyWalletRecord[] = []): PrivyWalletApi & {
 }
 
 describe("Privy customer-owned purchasing bridge", () => {
-  it("requires the approved app and a configured verification path", () => {
-    expect(() => new PrivyPurchaseBridge({ appId: "wrong-app", appSecret: "secret", verificationKey: publicJwk })).toThrow(/approved app/);
-    expect(() => new PrivyPurchaseBridge({ appId: PRIVY_APPROVED_APP_ID, appSecret: "secret" })).toThrow(/verification/);
-    expect(() => verifyPrivyAccessToken("eyJhbGciOiJFUzI1NiJ9.eyJzdWIiOiJ1In0.signature", {})).toThrow(/not configured/);
+  it("requires a valid runtime app and a configured verification path", () => {
+    expect(() => new PrivyPurchaseBridge({ appId: "bad", appSecret: "secret", verificationKey: publicJwk })).toThrow(/valid Privy app/);
+    expect(() => new PrivyPurchaseBridge({ appId: PRIVY_TEST_APP_ID, appSecret: "secret" })).toThrow(/verification/);
+    expect(() => verifyPrivyAccessToken("eyJhbGciOiJFUzI1NiJ9.eyJzdWIiOiJ1In0.signature", { appId: PRIVY_TEST_APP_ID })).toThrow(/not configured/);
   });
 
   it("verifies signature, issuer, audience, subject, and expiry", () => {
-    const claims = verifyPrivyAccessToken(accessToken(), { verificationKey: publicJwk, now: () => 1_800_000_000_000 });
-    expect(claims).toMatchObject({ userId: "did:privy:user_1", sessionId: "session_1", appId: PRIVY_APPROVED_APP_ID, issuer: "privy.io" });
-    expect(() => verifyPrivyAccessToken(accessToken({ aud: "other-app" }), { verificationKey: publicJwk })).toThrow(/invalid/);
-    expect(() => verifyPrivyAccessToken(accessToken({ iss: "other-issuer" }), { verificationKey: publicJwk })).toThrow(/invalid/);
-    expect(() => verifyPrivyAccessToken(accessToken({ exp: 1_600_000_000 }), { verificationKey: publicJwk, now: () => 1_700_000_000_000 })).toThrow(/invalid/);
+    const claims = verifyPrivyAccessToken(accessToken(), { appId: PRIVY_TEST_APP_ID, verificationKey: publicJwk, now: () => 1_800_000_000_000 });
+    expect(claims).toMatchObject({ userId: "did:privy:user_1", sessionId: "session_1", appId: PRIVY_TEST_APP_ID, issuer: "privy.io" });
+    expect(() => verifyPrivyAccessToken(accessToken({ aud: "other-app" }), { appId: PRIVY_TEST_APP_ID, verificationKey: publicJwk })).toThrow(/invalid/);
+    expect(() => verifyPrivyAccessToken(accessToken({ iss: "other-issuer" }), { appId: PRIVY_TEST_APP_ID, verificationKey: publicJwk })).toThrow(/invalid/);
+    expect(() => verifyPrivyAccessToken(accessToken({ exp: 1_600_000_000 }), { appId: PRIVY_TEST_APP_ID, verificationKey: publicJwk, now: () => 1_700_000_000_000 })).toThrow(/invalid/);
   });
 
   it("accepts only a bearer token and never returns token material", () => {
@@ -90,7 +91,7 @@ describe("Privy customer-owned purchasing bridge", () => {
 
   it("stops for customer confirmation when an existing compatible wallet is found", async () => {
     const api = fakeApi([wallet]);
-    const bridge = new PrivyPurchaseBridge({ appId: PRIVY_APPROVED_APP_ID, verificationKey: publicJwk, api });
+    const bridge = new PrivyPurchaseBridge({ appId: PRIVY_TEST_APP_ID, verificationKey: publicJwk, api });
     const result = await bridge.prepareWallet({ authorization: `Bearer ${accessToken()}`, requestId: "req_1", network: "ethereum", idempotencyKey: "set-wallet-1" });
     expect(result).toMatchObject({ status: "awaiting_wallet_confirmation", privyUserId: "did:privy:user_1", network: "ethereum" });
     expect(result.status === "awaiting_wallet_confirmation" ? result.candidates[0] : null).toEqual({ id: wallet.id, address: wallet.address, network: "ethereum", ownership: "user_owned" });
@@ -99,7 +100,7 @@ describe("Privy customer-owned purchasing bridge", () => {
 
   it("reuses only a wallet returned by the user-filtered Privy query", async () => {
     const api = fakeApi([wallet]);
-    const bridge = new PrivyPurchaseBridge({ appId: PRIVY_APPROVED_APP_ID, verificationKey: publicJwk, api });
+    const bridge = new PrivyPurchaseBridge({ appId: PRIVY_TEST_APP_ID, verificationKey: publicJwk, api });
     const result = await bridge.prepareWallet({ authorization: `Bearer ${accessToken()}`, requestId: "req_2", network: "ethereum", idempotencyKey: "set-wallet-2", reuseConfirmedWalletId: "wallet_1" });
     expect(result).toMatchObject({ status: "wallet_reused", wallet: { id: "wallet_1", address: wallet.address, ownership: "user_owned" } });
     await expect(bridge.prepareWallet({ authorization: `Bearer ${accessToken()}`, requestId: "req_3", network: "ethereum", idempotencyKey: "set-wallet-3", reuseConfirmedWalletId: "unknown" })).rejects.toMatchObject({ code: "invalid_request", status: 403 });
@@ -107,7 +108,7 @@ describe("Privy customer-owned purchasing bridge", () => {
 
   it("creates a user-owned wallet only after explicit confirmation and keeps retries idempotent", async () => {
     const api = fakeApi();
-    const bridge = new PrivyPurchaseBridge({ appId: PRIVY_APPROVED_APP_ID, verificationKey: publicJwk, api });
+    const bridge = new PrivyPurchaseBridge({ appId: PRIVY_TEST_APP_ID, verificationKey: publicJwk, api });
     const input = { authorization: `Bearer ${accessToken()}`, requestId: "req_4", network: "ethereum", idempotencyKey: "set-wallet-4" };
     const pending = await bridge.prepareWallet(input);
     expect(pending.status).toBe("awaiting_wallet_creation_confirmation");
@@ -130,7 +131,7 @@ describe("Privy customer-owned purchasing bridge", () => {
         : new Response(JSON.stringify(wallet), { status: 200 });
     };
     const bridge = new PrivyPurchaseBridge({
-      appId: PRIVY_APPROVED_APP_ID,
+      appId: PRIVY_TEST_APP_ID,
       appSecret: "app-secret-not-logged",
       verificationKey: publicJwk,
       apiBaseUrl: "https://privy.test",
@@ -139,12 +140,12 @@ describe("Privy customer-owned purchasing bridge", () => {
     await bridge.prepareWallet({ authorization: `Bearer ${accessToken()}`, requestId: "req_7", network: "ethereum", idempotencyKey: "set-wallet-7", createWalletConfirmed: true });
     expect(calls[0]?.url).toContain("/v1/wallets?");
     expect(calls[1]?.url).toBe("https://privy.test/v1/wallets");
-    expect(calls[1]?.init.headers).toMatchObject({ "privy-app-id": PRIVY_APPROVED_APP_ID, "privy-idempotency-key": "set-wallet-7" });
+    expect(calls[1]?.init.headers).toMatchObject({ "privy-app-id": PRIVY_TEST_APP_ID, "privy-idempotency-key": "set-wallet-7" });
     expect(JSON.parse(String(calls[1]?.init.body))).toMatchObject({ chain_type: "ethereum", owner: { user_id: "did:privy:user_1" } });
   });
 
   it("rejects idempotency-key reuse for a different authenticated operation", async () => {
-    const bridge = new PrivyPurchaseBridge({ appId: PRIVY_APPROVED_APP_ID, verificationKey: publicJwk, api: fakeApi() });
+    const bridge = new PrivyPurchaseBridge({ appId: PRIVY_TEST_APP_ID, verificationKey: publicJwk, api: fakeApi() });
     await bridge.prepareWallet({ authorization: `Bearer ${accessToken()}`, requestId: "req_5", network: "ethereum", idempotencyKey: "set-wallet-5", createWalletConfirmed: true });
     await expect(bridge.prepareWallet({ authorization: `Bearer ${accessToken()}`, requestId: "req_6", network: "ethereum", idempotencyKey: "set-wallet-5", createWalletConfirmed: true })).rejects.toBeInstanceOf(PrivyBridgeError);
   });

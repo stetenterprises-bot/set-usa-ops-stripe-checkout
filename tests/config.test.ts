@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loadConfig, PRIVY_APP_ID, STRIPE_API_VERSION } from "../src/config.js";
+import { loadConfig, STRIPE_API_VERSION } from "../src/config.js";
 
 const key = (mode: "test" | "live", kind: "rk" | "sk") =>
   [kind, mode, "examplevalue"].join("_");
@@ -94,18 +94,23 @@ describe("local Stripe configuration", () => {
     expect(() => loadConfig({ MPP_SECRET_KEY: "too-short" })).toThrow(/at least 32 bytes/);
   });
 
-  it("accepts only the approved Privy app with its backend secret", () => {
+  it("accepts a complete runtime Privy app pair and prefers the Projects-managed pair", () => {
+    const privyAppId = "cmt_runtime_app_123";
     const config = loadConfig({
-      PRIVY_APP_ID,
+      PRIVY_APP_ID: privyAppId,
       PRIVY_APP_SECRET: "privy-test-secret"
     });
-    expect(config.privyAppId).toBe(PRIVY_APP_ID);
+    expect(config.privyAppId).toBe(privyAppId);
     expect(config.privyAppSecret).toBe("privy-test-secret");
-    expect(() => loadConfig({ PRIVY_APP_ID })).toThrow(/configured together/);
-    expect(() => loadConfig({
-      PRIVY_APP_ID: "different-app",
-      PRIVY_APP_SECRET: "privy-test-secret"
-    })).toThrow(/approved app/);
+    expect(() => loadConfig({ PRIVY_APP_ID: privyAppId })).toThrow(/configured together/);
+    const managed = loadConfig({
+      PRIVY_APP_ID: "cmt_legacy_app_123",
+      PRIVY_APP_SECRET: "legacy-secret",
+      PRIVY_PRIVY_APP_ID: "cmt_managed_app_123",
+      PRIVY_PRIVY_APP_SECRET: "managed-secret"
+    });
+    expect(managed.privyAppId).toBe("cmt_managed_app_123");
+    expect(managed.privyAppSecret).toBe("managed-secret");
   });
 
   it("loads Stripe App verification secrets without exposing them elsewhere", () => {

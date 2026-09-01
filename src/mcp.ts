@@ -5,7 +5,6 @@ import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import * as z from "zod/v4";
 import {
   PRIVY_API_BASE_URL,
-  PRIVY_APP_ID,
   PRIVY_BASE_CHAIN_ID,
   type RuntimeConfig
 } from "./config.js";
@@ -68,7 +67,7 @@ export function createSetCommerceMcpServer(config: RuntimeConfig): McpServer {
         },
         privy: {
           configured: Boolean(config.privyAppId && config.privyAppSecret),
-          approvedAppId: PRIVY_APP_ID,
+          approvedAppId: config.privyAppId ?? "unconfigured",
           apiBaseUrl: PRIVY_API_BASE_URL,
           defaultChain: "base",
           chainId: PRIVY_BASE_CHAIN_ID

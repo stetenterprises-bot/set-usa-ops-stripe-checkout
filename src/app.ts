@@ -81,7 +81,6 @@ export function createDefaultPurchasingOrchestrator(
     !config.agenticEventsDatabaseUrl ||
     !config.privyAppId ||
     !config.privyAppSecret ||
-    !config.privyJwtVerificationKey ||
     !config.purchaseApprovalSigningKey
   ) return undefined;
 
@@ -91,7 +90,7 @@ export function createDefaultPurchasingOrchestrator(
       privy: createPrivyPurchaseBridge({
         appId: config.privyAppId,
         appSecret: config.privyAppSecret,
-        verificationKey: config.privyJwtVerificationKey
+        ...(config.privyJwtVerificationKey ? { verificationKey: config.privyJwtVerificationKey } : {})
       }),
       stripe,
       approvalSigningKey: config.purchaseApprovalSigningKey,
@@ -174,7 +173,7 @@ export function createApp(config: RuntimeConfig, dependencies: AppDependencies =
       cryptoOnrampConfigured: Boolean(config.stripeApiKey && config.stripePublishableKey && config.stripeWebhookSecret && config.agenticEventsDatabaseUrl),
       cryptoEmbeddedComponentsConfigured: Boolean(config.stripeApiKey && config.stripePublishableKey && config.stripeLinkOauthClientId && config.stripeLinkOauthClientSecret),
       purchaseStoreConfigured: Boolean(config.agenticEventsDatabaseUrl),
-      privyAuthenticationConfigured: Boolean(config.privyAppId && config.privyAppSecret && config.privyJwtVerificationKey),
+      privyAuthenticationConfigured: Boolean(config.privyAppId && config.privyAppSecret),
       purchaseApprovalConfigured: Boolean(config.purchaseApprovalSigningKey),
       purchasingConfigured: Boolean(purchasingOrchestrator),
       purchasingWebhookConfigured: Boolean(config.stripeWebhookSecret && purchasingOrchestrator),
