@@ -17,6 +17,22 @@ Scope: SET's USD Payment Element + PaymentIntent checkout for `us_bank_account`.
 
 `instant` means instant account verification. It does not make the ACH debit settle instantly or guarantee funds.
 
+## Individual and business account paths
+
+Stripe Dashboard currently records SET's Financial Connections usage for Individuals and Businesses across Money Movement, Financial Management, Identity Verification, and Underwriting. The technical bank-link flow is the same for both customer types; the requested purpose and the interpretation of returned data differ.
+
+1. **Identify the customer type and purpose before launch.** SET records whether the customer is acting as an individual or business and which approved use case applies. Do not infer the customer type from the bank account name alone.
+2. **Create or reuse the Stripe Customer.** The USD checkout already creates a server-side Customer because its selected allowlist includes customer-balance bank transfer. The Customer provides the account-holder context for the PaymentIntent and Financial Connections flow.
+3. **Request the four consent categories.** The Stripe-hosted UI discloses payment-method access, balances, ownership, and transactions. The customer chooses whether to consent and which accounts to share.
+4. **Interpret ownership narrowly.** Ownership data can return account-owner names and mailing addresses. It can support matching the shared bank account to the individual or business presented to SET, but it does not by itself prove entity good standing, signing authority, or a complete beneficial-owner population.
+5. **Interpret connection status narrowly.** `active`, `inactive`, and `disconnected` describe the Financial Connections link. They are not a guarantee that the underlying bank account has funds, will remain open, or will successfully settle a debit.
+6. **Apply only the approved purpose.**
+   - **Money Movement:** tokenize an eligible checking or savings account for the selected ACH payment and keep payment success separate from account linking.
+   - **Financial Management:** use consented balances and transactions for the customer-facing financial-management function.
+   - **Identity Verification:** compare consented ownership details with the customer information already supplied through an authorized intake.
+   - **Underwriting:** use consented balances and transactions as inputs to the approved review; the connection result is not itself a credit decision.
+7. **Do not expose raw data publicly.** The current release keeps balances, ownership, and transactions at Stripe and does not add an unauthenticated SET data endpoint or raw-data logging.
+
 ## Customer experience without microdeposits
 
 1. The customer opens a USD checkout and selects **US bank account**.
@@ -28,6 +44,8 @@ Scope: SET's USD Payment Element + PaymentIntent checkout for `us_bank_account`.
 7. SET confirms the ConfirmationToken through a server-created PaymentIntent.
 8. The browser can show `processing` or another non-terminal status and routes to the pending/return view.
 9. SET waits for `payment_intent.succeeded` before fulfillment. `payment_intent.payment_failed` asks the customer for another method.
+
+After linking, Stripe creates a Financial Connections Account for each account the customer authorized. Requested balance, ownership, and transaction prefetches can complete asynchronously and report through the corresponding `financial_connections.account.refreshed_*` events. SET must treat missing or still-refreshing data as unavailable, not as zero or verified.
 
 The customer does **not** see a routing/account-number fallback, wait for deposits, receive a deposit-verification prompt, or enter two deposit amounts or a descriptor code. If instant bank verification cannot complete, the bank method is not accepted.
 
