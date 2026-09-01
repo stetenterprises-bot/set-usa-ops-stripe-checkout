@@ -233,13 +233,12 @@ describe("development server", () => {
     expect(eur.body.offer.paymentMethodTypes).not.toContain("crypto");
   });
 
-  it("forces Financial Connections instant verification in the deferred Payment Element", async () => {
+  it("uses Financial Connections first with manual-entry microdeposit fallback", async () => {
     const checkoutScript = await readFile(new URL("../public/checkout.js", import.meta.url), "utf8");
 
-    expect(checkoutScript).toContain('verification_method: "instant"');
+    expect(checkoutScript).toContain('verification_method: "automatic"');
     expect(checkoutScript).toContain('permissions: ["payment_method", "balances", "ownership", "transactions"]');
     expect(checkoutScript).toContain('prefetch: ["balances", "ownership", "transactions"]');
-    expect(checkoutScript).not.toContain('verification_method: "automatic"');
     expect(checkoutScript).not.toContain('verification_method: "microdeposits"');
   });
 

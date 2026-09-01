@@ -63,7 +63,7 @@ export function createStripeIntegration(
       const paymentMethodOptions: Stripe.PaymentIntentCreateParams.PaymentMethodOptions = {};
       if (offer.paymentMethodTypes.includes("us_bank_account")) {
         paymentMethodOptions.us_bank_account = {
-          verification_method: "instant",
+          verification_method: "automatic",
           financial_connections: {
             permissions: ["payment_method", "balances", "ownership", "transactions"],
             prefetch: ["balances", "ownership", "transactions"]

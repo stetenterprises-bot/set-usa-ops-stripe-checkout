@@ -28,7 +28,7 @@ function showError(error) {
 function paymentMethodOptions(paymentMethodTypes) {
   return paymentMethodTypes.includes("us_bank_account") ? {
     us_bank_account: {
-      verification_method: "instant",
+      verification_method: "automatic",
       financial_connections: {
         permissions: ["payment_method", "balances", "ownership", "transactions"],
         prefetch: ["balances", "ownership", "transactions"]

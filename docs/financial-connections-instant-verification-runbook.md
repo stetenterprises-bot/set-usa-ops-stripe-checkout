@@ -1,5 +1,7 @@
 # Financial Connections instant-verification runbook
 
+Status: this document describes production commit `ab61b8e`. The later local release candidate changes verification to Financial Connections-first `automatic` fallback and is governed by `financial-connections-manual-fallback-release-matrix-2026-09-01.md` until separately committed and deployed.
+
 Scope: SET's USD Payment Element + PaymentIntent checkout for `us_bank_account`. The objective is to verify a US bank account through Stripe Financial Connections without manual account entry or microdeposit fallback.
 
 ## What is required

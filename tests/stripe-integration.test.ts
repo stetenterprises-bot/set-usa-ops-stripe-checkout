@@ -61,7 +61,7 @@ describe("server-confirmed Payment Element", () => {
       customer: "cus_test_example",
       payment_method_options: {
         us_bank_account: {
-          verification_method: "instant",
+          verification_method: "automatic",
           financial_connections: {
             permissions: ["payment_method", "balances", "ownership", "transactions"],
             prefetch: ["balances", "ownership", "transactions"]
