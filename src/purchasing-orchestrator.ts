@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import type Stripe from "stripe";
+import { ZodError } from "zod";
 import {
   createIdempotentOnrampSession,
   extractFulfillmentEvidence,
@@ -548,5 +549,6 @@ export class CustomerPurchasingOrchestrator {
 export function asPurchasingError(cause: unknown): PurchasingOrchestratorError {
   if (cause instanceof PurchasingOrchestratorError) return cause;
   if (cause instanceof PrivyBridgeError) return new PurchasingOrchestratorError(cause.code, cause.message, cause.status);
+  if (cause instanceof ZodError) return new PurchasingOrchestratorError("invalid_request", "The purchase request is invalid.", 400);
   return new PurchasingOrchestratorError("internal_error", "The purchasing operation failed.", 500);
 }
