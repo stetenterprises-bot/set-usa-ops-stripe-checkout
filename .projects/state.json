@@ -58,7 +58,19 @@
         {
           "resourceName": "privy-plan"
         }
+      ],
+      "variables": [
+        {
+          "variableName": "purchase-approval-signing-key",
+          "envKey": "PURCHASE_APPROVAL_SIGNING_KEY"
+        }
       ]
+    }
+  },
+  "variables": {
+    "purchase-approval-signing-key": {
+      "name": "purchase-approval-signing-key",
+      "backendId": "fprjvar_61VK4rlAoN9LECchD16UcjNbUWSQa7IlJM6tWxM5I1lY"
     }
   }
 }

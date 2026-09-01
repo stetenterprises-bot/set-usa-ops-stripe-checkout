@@ -55,6 +55,15 @@ const HANDLED_STRIPE_EVENTS = new Set([
   // must never be claimed by the generic Stripe-App event store.
 ]);
 
+function effectivePurchaseApprovalSigningKey(config: RuntimeConfig): string | undefined {
+  if (config.purchaseApprovalSigningKey) return config.purchaseApprovalSigningKey;
+  if (!config.mppSecretKey) return undefined;
+  return crypto
+    .createHmac("sha256", config.mppSecretKey)
+    .update("set-purchase-approval-signing-v1")
+    .digest("base64");
+}
+
 function normalizedEmail(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const email = value.trim();
@@ -73,6 +82,7 @@ export function createDefaultPurchasingOrchestrator(
   config: RuntimeConfig,
   providedStripe?: Stripe
 ): CustomerPurchasingOrchestrator | undefined {
+  const approvalSigningKey = effectivePurchaseApprovalSigningKey(config);
   const stripe = providedStripe ?? (config.stripeApiKey
     ? new Stripe(config.stripeApiKey, { apiVersion: STRIPE_API_VERSION })
     : undefined);
@@ -81,7 +91,7 @@ export function createDefaultPurchasingOrchestrator(
     !config.agenticEventsDatabaseUrl ||
     !config.privyAppId ||
     !config.privyAppSecret ||
-    !config.purchaseApprovalSigningKey
+    !approvalSigningKey
   ) return undefined;
 
   try {
@@ -93,7 +103,7 @@ export function createDefaultPurchasingOrchestrator(
         ...(config.privyJwtVerificationKey ? { verificationKey: config.privyJwtVerificationKey } : {})
       }),
       stripe,
-      approvalSigningKey: config.purchaseApprovalSigningKey,
+      approvalSigningKey,
       onrampMode: (config.stripeMode ?? "test") === "live" ? "live" : "sandbox"
     };
     return new CustomerPurchasingOrchestrator(options);
@@ -174,7 +184,7 @@ export function createApp(config: RuntimeConfig, dependencies: AppDependencies =
       cryptoEmbeddedComponentsConfigured: Boolean(config.stripeApiKey && config.stripePublishableKey && config.stripeLinkOauthClientId && config.stripeLinkOauthClientSecret),
       purchaseStoreConfigured: Boolean(config.agenticEventsDatabaseUrl),
       privyAuthenticationConfigured: Boolean(config.privyAppId && config.privyAppSecret),
-      purchaseApprovalConfigured: Boolean(config.purchaseApprovalSigningKey),
+      purchaseApprovalConfigured: Boolean(effectivePurchaseApprovalSigningKey(config)),
       purchasingConfigured: Boolean(purchasingOrchestrator),
       purchasingWebhookConfigured: Boolean(config.stripeWebhookSecret && purchasingOrchestrator),
       mppConfigured: Boolean(paidApi),
