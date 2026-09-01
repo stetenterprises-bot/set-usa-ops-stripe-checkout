@@ -233,6 +233,70 @@ describe("development server", () => {
     expect(eur.body.offer.paymentMethodTypes).not.toContain("crypto");
   });
 
+  it("forces Financial Connections instant verification in the deferred Payment Element", async () => {
+    const checkoutScript = await readFile(new URL("../public/checkout.js", import.meta.url), "utf8");
+
+    expect(checkoutScript).toContain('verification_method: "instant"');
+    expect(checkoutScript).toContain('permissions: ["payment_method", "balances", "ownership", "transactions"]');
+    expect(checkoutScript).toContain('prefetch: ["balances", "ownership", "transactions"]');
+    expect(checkoutScript).not.toContain('verification_method: "automatic"');
+    expect(checkoutScript).not.toContain('verification_method: "microdeposits"');
+  });
+
+  it("verifies and classifies Financial Connections account lifecycle events", async () => {
+    const webhookSecret = ["whsec", "financial", "unitvalue"].join("_");
+    const payload = JSON.stringify({
+      id: "evt_fc_deactivated",
+      object: "event",
+      type: "financial_connections.account.deactivated",
+      livemode: false,
+      data: {
+        object: {
+          id: "fca_test_deactivated",
+          object: "financial_connections.account",
+          status: "inactive",
+          supported_payment_method_types: ["us_bank_account"]
+        }
+      }
+    });
+    const signature = Stripe.webhooks.generateTestHeaderString({ payload, secret: webhookSecret });
+    const log = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const eventStore = new InMemoryStripeAppEventStore();
+    const app = createApp({
+      port: 4242,
+      applicationBaseUrl: "http://127.0.0.1:4242",
+      stripeWebhookSecret: webhookSecret
+    }, { stripeAppEventStore: eventStore });
+
+    const response = await request(app)
+      .post("/webhooks/stripe")
+      .set("content-type", "application/json")
+      .set("stripe-signature", signature)
+      .send(payload);
+    const duplicate = await request(app)
+      .post("/webhooks/stripe")
+      .set("content-type", "application/json")
+      .set("stripe-signature", signature)
+      .send(payload);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      received: true,
+      handled: true,
+      eventType: "financial_connections.account.deactivated"
+    });
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('"status":"inactive"'));
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('"financialConnectionsAccountId":"fca_test_deactivated"'));
+    expect(duplicate.body).toMatchObject({
+      received: true,
+      handled: true,
+      duplicate: true,
+      eventType: "financial_connections.account.deactivated"
+    });
+    expect(log).toHaveBeenCalledTimes(1);
+    log.mockRestore();
+  });
+
   it("rejects unknown checkout offers", async () => {
     const app = createApp({
       port: 4242,

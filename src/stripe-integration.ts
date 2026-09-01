@@ -60,6 +60,22 @@ export function createStripeIntegration(
             { idempotencyKey: `${idempotencyKey}-customer` }
           )
         : undefined;
+      const paymentMethodOptions: Stripe.PaymentIntentCreateParams.PaymentMethodOptions = {};
+      if (offer.paymentMethodTypes.includes("us_bank_account")) {
+        paymentMethodOptions.us_bank_account = {
+          verification_method: "instant",
+          financial_connections: {
+            permissions: ["payment_method", "balances", "ownership", "transactions"],
+            prefetch: ["balances", "ownership", "transactions"]
+          }
+        };
+      }
+      if (offer.customerBalanceBankTransferType) {
+        paymentMethodOptions.customer_balance = {
+          funding_type: "bank_transfer",
+          bank_transfer: { type: offer.customerBalanceBankTransferType }
+        };
+      }
       return stripe.paymentIntents.create(
         {
           amount: offer.amount,
@@ -69,14 +85,7 @@ export function createStripeIntegration(
           confirmation_token: confirmationTokenId,
           receipt_email: customerEmail,
           ...(customer ? { customer: customer.id } : {}),
-          ...(offer.customerBalanceBankTransferType ? {
-            payment_method_options: {
-              customer_balance: {
-                funding_type: "bank_transfer",
-                bank_transfer: { type: offer.customerBalanceBankTransferType }
-              }
-            }
-          } : {}),
+          ...(Object.keys(paymentMethodOptions).length > 0 ? { payment_method_options: paymentMethodOptions } : {}),
           metadata: {
             seller: "SET Business Consults",
             offer: offer.id,

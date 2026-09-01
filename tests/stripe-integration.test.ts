@@ -60,6 +60,13 @@ describe("server-confirmed Payment Element", () => {
       receipt_email: "buyer@example.com",
       customer: "cus_test_example",
       payment_method_options: {
+        us_bank_account: {
+          verification_method: "instant",
+          financial_connections: {
+            permissions: ["payment_method", "balances", "ownership", "transactions"],
+            prefetch: ["balances", "ownership", "transactions"]
+          }
+        },
         customer_balance: {
           funding_type: "bank_transfer",
           bank_transfer: { type: "us_bank_transfer" }
@@ -109,5 +116,6 @@ describe("server-confirmed Payment Element", () => {
     const [params] = create.mock.calls[0]!;
     expect(params).not.toHaveProperty("automatic_payment_methods");
     expect(params).not.toHaveProperty("customer");
+    expect(params).not.toHaveProperty("payment_method_options");
   });
 });

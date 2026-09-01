@@ -58,6 +58,20 @@ const HANDLED_STRIPE_EVENTS = new Set([
   "payment_intent.succeeded",
   "payment_intent.payment_failed",
   "payment_intent.canceled",
+  "financial_connections.account.account_numbers_updated",
+  "financial_connections.account.created",
+  "financial_connections.account.deactivated",
+  "financial_connections.account.disconnected",
+  "financial_connections.account.expected_deactivation_date_updated",
+  "financial_connections.account.reactivated",
+  "financial_connections.account.refreshed_balance",
+  "financial_connections.account.refreshed_ownership",
+  "financial_connections.account.refreshed_transactions",
+  "financial_connections.account.supported_payment_method_types_updated",
+  "financial_connections.account.upcoming_account_number_expiry",
+  "financial_connections.account.upcoming_deactivation",
+  "financial_connections.authorization.expected_deactivation_date_updated",
+  "financial_connections.authorization.upcoming_deactivation",
   // Embedded Onramp events are handled by CustomerPurchasingOrchestrator and
   // must never be claimed by the generic Stripe-App event store.
 ]);
@@ -275,6 +289,26 @@ export function createApp(config: RuntimeConfig, dependencies: AppDependencies =
             eventType: event.type,
             paymentIntentId: paymentIntent.id,
             status: paymentIntent.status
+          }));
+        }
+        if (claimed && eventType.startsWith("financial_connections.account.")) {
+          const account = event.data.object as Stripe.FinancialConnections.Account;
+          console.info(JSON.stringify({
+            kind: "stripe_financial_connections_account_event",
+            eventId: event.id,
+            eventType: event.type,
+            financialConnectionsAccountId: account.id,
+            status: account.status,
+            supportedPaymentMethodTypes: account.supported_payment_method_types
+          }));
+        }
+        if (claimed && eventType.startsWith("financial_connections.authorization.")) {
+          const authorization = event.data.object as { id?: string };
+          console.info(JSON.stringify({
+            kind: "stripe_financial_connections_authorization_event",
+            eventId: event.id,
+            eventType: event.type,
+            financialConnectionsAuthorizationId: authorization.id ?? null
           }));
         }
         response.status(200).json({ received: true, handled, duplicate, eventId: event.id, eventType: event.type });

@@ -25,6 +25,18 @@ function showError(error) {
   loading.hidden = true;
 }
 
+function paymentMethodOptions(paymentMethodTypes) {
+  return paymentMethodTypes.includes("us_bank_account") ? {
+    us_bank_account: {
+      verification_method: "instant",
+      financial_connections: {
+        permissions: ["payment_method", "balances", "ownership", "transactions"],
+        prefetch: ["balances", "ownership", "transactions"]
+      }
+    }
+  } : {};
+}
+
 async function initializeCheckout() {
   try {
     const configResponse = await fetch(`${checkoutBasePath}/config`);
@@ -51,11 +63,13 @@ async function initializeCheckout() {
     const stripe = Stripe(publishableKey);
     const currentAmount = () => isOpenPayment ? Math.round(Number(openAmount.value) * 100) : offer.amount;
     const currentCurrency = () => isOpenPayment ? openCurrency.value : offer.currency;
+    const initialPaymentMethodTypes = isOpenPayment ? offer.paymentMethodTypesByCurrency.usd : offer.paymentMethodTypes;
     const elements = stripe.elements({
       mode: "payment",
       amount: isOpenPayment ? 100 : offer.amount,
       currency: isOpenPayment ? "usd" : offer.currency,
-      paymentMethodTypes: isOpenPayment ? offer.paymentMethodTypesByCurrency.usd : offer.paymentMethodTypes,
+      paymentMethodTypes: initialPaymentMethodTypes,
+      paymentMethodOptions: paymentMethodOptions(initialPaymentMethodTypes),
       paymentMethodCreation: "manual",
       appearance: {
         theme: "night",
@@ -78,7 +92,13 @@ async function initializeCheckout() {
       offerCurrency.textContent = `${currency.toUpperCase()} · one time`;
       submitButton.textContent = Number.isFinite(amount) && amount >= 100 ? `Pay ${formattedAmount(amount, currency)}` : "Continue to payment";
       if (Number.isFinite(amount) && amount >= 100) {
-        elements.update({ amount, currency, paymentMethodTypes: offer.paymentMethodTypesByCurrency[currency] });
+        const paymentMethodTypes = offer.paymentMethodTypesByCurrency[currency];
+        elements.update({
+          amount,
+          currency,
+          paymentMethodTypes,
+          paymentMethodOptions: paymentMethodOptions(paymentMethodTypes)
+        });
       }
     };
     if (isOpenPayment) {
