@@ -1,5 +1,6 @@
 import express, { type Request, type Response } from "express";
 import crypto from "node:crypto";
+import { isIP } from "node:net";
 import { Mppx, discovery } from "mppx/express";
 import { stripe as stripeMachinePayments } from "mppx/server";
 import Stripe from "stripe";
@@ -90,6 +91,12 @@ function normalizedEmail(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const email = value.trim();
   return email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : null;
+}
+
+export function clientIpAddress(request: Request): string | undefined {
+  const forwarded = request.header("x-forwarded-for")?.split(",", 1)[0]?.trim();
+  const candidate = (forwarded || request.ip)?.replace(/^::ffff:/, "").trim();
+  return candidate && isIP(candidate) !== 0 ? candidate : undefined;
 }
 
 export type AppDependencies = {
@@ -497,7 +504,7 @@ export function createApp(config: RuntimeConfig, dependencies: AppDependencies =
         destination_network: "base",
         destination_networks: ["base"],
         wallet_address: walletAddress,
-        ...(request.ip ? { customer_ip_address: request.ip } : {})
+        ...(clientIpAddress(request) ? { customer_ip_address: clientIpAddress(request) } : {})
       });
       return response.status(201).json({ id: session.id, quoteExpiresAt: session.quote?.expires_at ?? null });
     } catch {
@@ -522,7 +529,7 @@ export function createApp(config: RuntimeConfig, dependencies: AppDependencies =
     try {
       const oauthToken = await exchangeLinkAccessToken(config.stripeApiKey, authIntentId);
       const session = await componentsRawRequest<{ client_secret?: string }>(stripe, oauthToken, "POST", `/v1/crypto/onramp_sessions/${request.params.sessionId}/checkout`, {
-        mandate_data: { customer_acceptance: { type: "online", accepted_at: Math.floor(Date.now() / 1000), online: { ip_address: request.ip ?? "", user_agent: request.header("user-agent") ?? "" } } }
+        mandate_data: { customer_acceptance: { type: "online", accepted_at: Math.floor(Date.now() / 1000), online: { ip_address: clientIpAddress(request) ?? "", user_agent: request.header("user-agent") ?? "" } } }
       });
       if (!session.client_secret) throw new Error("No checkout client secret.");
       return response.json({ client_secret: session.client_secret });
@@ -547,7 +554,8 @@ export function createApp(config: RuntimeConfig, dependencies: AppDependencies =
     const input = validateOnrampRequest(request.body);
     if (!input.ok) return response.status(400).json({ error: input.error });
     try {
-      const onrampSession = await createEmbeddedOnrampSession(stripe, { network: input.network, currency: input.currency, walletAddress: input.walletAddress, idempotencyKey, ...(request.ip ? { customerIp: request.ip } : {}) });
+      const customerIp = clientIpAddress(request);
+      const onrampSession = await createEmbeddedOnrampSession(stripe, { network: input.network, currency: input.currency, walletAddress: input.walletAddress, idempotencyKey, ...(customerIp ? { customerIp } : {}) });
       if (!onrampSession.client_secret) throw new Error("Stripe returned no client secret.");
       return response.status(201).json({ clientSecret: onrampSession.client_secret, sessionId: onrampSession.id });
     } catch { return response.status(502).json({ error: "Stripe could not create an Embedded Onramp session. Confirm Onramp approval and the allowlisted domain in Dashboard." }); }

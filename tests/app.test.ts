@@ -1,8 +1,9 @@
 import { readFile } from "node:fs/promises";
 import request from "supertest";
+import type { Request } from "express";
 import Stripe from "stripe";
 import { describe, expect, it, vi } from "vitest";
-import { createApp } from "../src/app.js";
+import { clientIpAddress, createApp } from "../src/app.js";
 import {
   InMemoryStripeAppEventStore,
   PostgresStripeAppEventStore
@@ -16,6 +17,17 @@ const readinessInput = (): ReadinessAssessmentInput => ({
 });
 
 describe("development server", () => {
+  it("uses Render's first forwarded address as the Stripe customer IP", () => {
+    const fakeRequest = {
+      header: (name: string) => name.toLowerCase() === "x-forwarded-for"
+        ? "74.220.50.246, 10.24.32.2"
+        : undefined,
+      ip: "10.24.32.2"
+    } as Request;
+
+    expect(clientIpAddress(fakeRequest)).toBe("74.220.50.246");
+  });
+
   it("redirects only a Stripe-confirmed successful payment to the public thank-you page", async () => {
     const returnScript = await readFile(new URL("../public/return.js", import.meta.url), "utf8");
 
