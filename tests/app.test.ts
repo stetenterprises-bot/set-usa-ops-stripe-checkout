@@ -194,7 +194,7 @@ describe("development server", () => {
     const app = createApp({
       port: 4242,
       applicationBaseUrl: "http://127.0.0.1:4242",
-      stripeApiKey: ["rk", "test", "unitvalue"].join("_"),
+      stripeApiKey: ["sk", "test", "unitvalue"].join("_"),
       stripePublishableKey: ["pk", "test", "unitvalue"].join("_"),
       stripeWebhookSecret: ["whsec", "unitvalue"].join("_"),
       agenticEventsDatabaseUrl: "postgresql://unit:unit@127.0.0.1:5432/unit"
@@ -205,6 +205,20 @@ describe("development server", () => {
       .send({ network: "ethereum", currency: "usdc", walletAddress: "0x0000000000000000000000000000000000000000" });
     expect(response.status).toBe(400);
     expect(response.body.error).toContain("Confirm the wallet");
+  });
+
+  it("fails closed with the actual restricted-key requirement before minting an Onramp session", async () => {
+    const app = createApp({
+      port: 4242,
+      applicationBaseUrl: "http://127.0.0.1:4242",
+      stripeApiKey: ["rk", "live", "unitvalue"].join("_"),
+      stripePublishableKey: ["pk", "live", "unitvalue"].join("_"),
+      stripeWebhookSecret: ["whsec", "unitvalue"].join("_"),
+      agenticEventsDatabaseUrl: "postgresql://unit:unit@127.0.0.1:5432/unit"
+    });
+    const response = await request(app).get("/private/embedded-onramp-OPoWPWqwaOqszCJaOMmp-wiY/config");
+    expect(response.status).toBe(503);
+    expect(response.body.error).toContain("standard Stripe secret key");
   });
 
   it("returns server-authoritative static offer configurations", async () => {

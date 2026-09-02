@@ -30,6 +30,7 @@ import {
   componentsRawRequest,
   createEmbeddedOnrampSession,
   createLinkAuthIntent,
+  embeddedOnrampConfigurationError,
   exchangeLinkAccessToken,
   onrampPairs,
   validateOnrampRequest
@@ -531,12 +532,14 @@ export function createApp(config: RuntimeConfig, dependencies: AppDependencies =
   app.get(PRIVATE_EMBEDDED_ONRAMP_PATH, (_request, response) => response.sendFile(join(publicDirectory, "crypto-fiat.html")));
   app.get(`${PRIVATE_EMBEDDED_ONRAMP_PATH}/config`, (_request, response) => {
     response.setHeader("Cache-Control", "no-store");
-    if (!config.stripePublishableKey || !config.stripeApiKey || !config.stripeWebhookSecret || !config.agenticEventsDatabaseUrl) return response.status(503).json({ error: "Stripe Embedded Onramp is awaiting complete production configuration." });
+    const onrampConfigurationError = embeddedOnrampConfigurationError(config.stripeApiKey);
+    if (!config.stripePublishableKey || !config.stripeWebhookSecret || !config.agenticEventsDatabaseUrl || onrampConfigurationError) return response.status(503).json({ error: onrampConfigurationError ?? "Stripe Embedded Onramp is awaiting complete production configuration." });
     return response.json({ publishableKey: config.stripePublishableKey, mode: stripeMode, country: "US", pairs: onrampPairs() });
   });
   app.post(`${PRIVATE_EMBEDDED_ONRAMP_PATH}/session`, async (request, response) => {
     response.setHeader("Cache-Control", "no-store");
-    if (!stripe || !config.stripePublishableKey || !config.stripeWebhookSecret || !config.agenticEventsDatabaseUrl) return response.status(503).json({ error: "Stripe Embedded Onramp is awaiting complete production configuration." });
+    const onrampConfigurationError = embeddedOnrampConfigurationError(config.stripeApiKey);
+    if (!stripe || !config.stripePublishableKey || !config.stripeWebhookSecret || !config.agenticEventsDatabaseUrl || onrampConfigurationError) return response.status(503).json({ error: onrampConfigurationError ?? "Stripe Embedded Onramp is awaiting complete production configuration." });
     const idempotencyKey = request.header("idempotency-key");
     if (!idempotencyKey || !/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(idempotencyKey)) {
       return response.status(400).json({ error: "A valid Idempotency-Key containing 8 to 128 safe characters is required." });

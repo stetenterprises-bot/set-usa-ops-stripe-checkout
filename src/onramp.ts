@@ -25,6 +25,14 @@ export function onrampPairs(): ReadonlyArray<OnrampPair> {
   return ONRAMP_PAIRS;
 }
 
+export function embeddedOnrampConfigurationError(stripeApiKey: string | undefined): string | null {
+  if (!stripeApiKey) return "Stripe Embedded Onramp is awaiting complete production configuration.";
+  if (/^rk_(?:live|test)_/.test(stripeApiKey)) {
+    return "Stripe Embedded Onramp requires a standard Stripe secret key; Stripe does not permit restricted keys for this endpoint.";
+  }
+  return null;
+}
+
 function normalizeWalletAddress(network: string, value: unknown): string | null {
   if (typeof value !== "string") return null;
   const address = value.trim();
