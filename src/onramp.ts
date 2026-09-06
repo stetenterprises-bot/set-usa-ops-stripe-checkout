@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import type Stripe from "stripe";
+import { stripeRawResponseData } from "./stripe-raw-response.js";
 
 const ONRAMP_PAIRS = [
   { network: "bitcoin", currency: "btc", label: "Bitcoin on Bitcoin" },
@@ -83,7 +84,7 @@ export async function createEmbeddedOnrampSession(
     },
     { idempotencyKey: input.idempotencyKey ?? `set-embedded-onramp-${crypto.randomUUID()}` }
   );
-  return response.data as CryptoOnrampSession;
+  return stripeRawResponseData<CryptoOnrampSession>(response);
 }
 
 export async function createLinkAuthIntent(
@@ -121,5 +122,5 @@ export async function componentsRawRequest<T>(
     additionalHeaders: { "Stripe-OAuth-Token": oauthToken },
     ...(method === "POST" ? { idempotencyKey: `set-components-onramp-${crypto.randomUUID()}` } : {})
   });
-  return response.data as T;
+  return stripeRawResponseData<T>(response);
 }

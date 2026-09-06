@@ -1,4 +1,5 @@
 import type Stripe from "stripe";
+import { stripeRawResponseData } from "./stripe-raw-response.js";
 import {
   validateQuoteSnapshot,
   type OnrampCurrency,
@@ -89,7 +90,7 @@ export async function fetchCurrentOnrampQuote(
   }
   const params = rawQuoteParams(request);
   const response = await stripe.rawRequest("GET", "/v1/crypto/onramp/quotes", params);
-  const data = response.data as StripeQuoteResponse;
+  const data = stripeRawResponseData<StripeQuoteResponse>(response);
   const network = request.destinationNetwork.trim().toLowerCase();
   const currency = request.destinationCurrency.trim().toLowerCase();
   // Stripe's generated quote object currently exposes Base under the

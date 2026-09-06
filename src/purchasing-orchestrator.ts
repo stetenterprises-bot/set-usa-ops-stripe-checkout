@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import type Stripe from "stripe";
+import { stripeRawResponseData } from "./stripe-raw-response.js";
 import { ZodError } from "zod";
 import {
   createIdempotentOnrampSession,
@@ -386,8 +387,9 @@ export class CustomerPurchasingOrchestrator {
         if (record.state !== "awaiting_customer") error("session_exists", "This approval already has an Onramp session that is no longer awaiting customer action.", 409);
         try {
           const response = await this.stripe.rawRequest("GET", `/v1/crypto/onramp_sessions/${encodeURIComponent(record.onramp_session_id)}`, {});
-          const session = response.data && typeof response.data === "object"
-            ? response.data as Record<string, unknown>
+          const rawSession = stripeRawResponseData<unknown>(response);
+          const session = rawSession && typeof rawSession === "object"
+            ? rawSession as Record<string, unknown>
             : null;
           if (!session || session.id !== record.onramp_session_id || typeof session.client_secret !== "string" ||
               session.livemode !== (record.onramp_mode === "live")) {
@@ -493,8 +495,9 @@ export class CustomerPurchasingOrchestrator {
       }
       try {
         const response = await this.stripe.rawRequest("GET", `/v1/crypto/onramp_sessions/${encodeURIComponent(record.onramp_session_id)}`, {});
-        const providerSession = response.data && typeof response.data === "object"
-          ? response.data as Record<string, unknown>
+        const rawProviderSession = stripeRawResponseData<unknown>(response);
+        const providerSession = rawProviderSession && typeof rawProviderSession === "object"
+          ? rawProviderSession as Record<string, unknown>
           : null;
         const expectedLivemode = record.onramp_mode === "live";
         if (!providerSession || providerSession.livemode !== expectedLivemode) {
@@ -502,7 +505,7 @@ export class CustomerPurchasingOrchestrator {
           deferred += 1;
           continue;
         }
-        const evidence = extractFulfillmentEvidence(response.data);
+        const evidence = extractFulfillmentEvidence(rawProviderSession);
         if (evidence.kind === "fail_closed" || evidence.kind === "reconciliation_required") {
           await this.store.rescheduleRecovery(record.request_id, evidence.reason, 60);
           deferred += 1;

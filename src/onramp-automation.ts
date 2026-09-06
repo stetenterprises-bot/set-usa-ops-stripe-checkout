@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { stripeRawResponseData } from "./stripe-raw-response.js";
 import Stripe from "stripe";
 
 /** Stripe's currently documented Embedded Onramp webhook type. */
@@ -235,7 +236,7 @@ export async function createIdempotentOnrampSession(
   const built = buildOnrampSessionRequest(input, now);
   if (!built.ok) throw new Error(built.error);
   const response = await client.rawRequest("POST", "/v1/crypto/onramp_sessions", built.request.params as unknown as Record<string, unknown>, { idempotencyKey: built.request.idempotencyKey });
-  const session = response.data as Record<string, unknown>;
+  const session = stripeRawResponseData<Record<string, unknown>>(response);
   if (typeof session.id !== "string" || !sessionIdPattern.test(session.id) || !isDocumentedOnrampStatus(session.status)) {
     throw new Error("Stripe returned an unknown or malformed Onramp session.");
   }
