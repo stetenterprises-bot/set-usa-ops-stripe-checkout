@@ -16,7 +16,10 @@ describe("customer wallet delivery", () => {
   it("serves the generated entry with resolvable script and stylesheet URLs", async () => {
     const app = express();
     registerWalletClientRoutes(app, { port: 4242, applicationBaseUrl: "http://localhost:4242" });
-    const response = await request(app).get("/wallet");
+    const redirect = await request(app).get("/wallet");
+    expect(redirect.status).toBe(302);
+    expect(redirect.headers.location).toBe("https://ledgerline-compliance.sthomas935.chatgpt.site/wallet");
+    const response = await request(app).get("/wallet/application");
     expect(response.status).toBe(200);
     const assets = [...response.text.matchAll(/(?:src|href)="(\/wallet-assets\/[^"<>]+)"/g)].map((match) => match[1]!);
     expect(assets.some((asset) => asset.endsWith(".css"))).toBe(true);

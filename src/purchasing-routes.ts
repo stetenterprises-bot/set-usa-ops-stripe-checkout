@@ -142,8 +142,10 @@ export function registerPurchasingRoutes(
         authorization: request.header("authorization"),
         digest: request.body.digest,
         nonce: request.body.nonce,
-        ...(request.body?.budgetOverageConfirmed === true ? { budgetOverageConfirmed: true } : {}),
-        ...(request.ip ? { customerIp: request.ip } : {})
+        // Requests can arrive through the Site's origin proxy. Its network
+        // address is not the customer's; Stripe collects customer context in
+        // its embedded flow rather than receiving an incorrectly attributed IP.
+        ...(request.body?.budgetOverageConfirmed === true ? { budgetOverageConfirmed: true } : {})
       });
       return response.status(201).json({ ...result, executionAuthorized: true, nextGate: "customer_completes_stripe_payment_and_kyc" });
     } catch (cause) {
