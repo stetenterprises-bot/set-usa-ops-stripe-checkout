@@ -3,6 +3,7 @@ dist/
 coverage/
 *.log
 .data/
+/public/wallet-assets/
 
 .projects/cache
 .projects/vault

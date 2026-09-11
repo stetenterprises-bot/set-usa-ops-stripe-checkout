@@ -45,6 +45,7 @@ import {
   type PurchasingOrchestratorOptions
 } from "./purchasing-orchestrator.js";
 import { registerPurchasingRoutes } from "./purchasing-routes.js";
+import { registerWalletClientRoutes } from "./wallet-client-routes.js";
 import {
   AssessmentConflictError,
   AssessmentReceiptPendingError,
@@ -52,6 +53,7 @@ import {
   type ReadinessAssessmentStore
 } from "./readiness-assessment-store.js";
 import { readinessRequestHash, validateReadinessAssessmentInput, type ReadinessAssessmentInput } from "./readiness-assessment.js";
+import { PAYMENT_INTENT_EVENT_TYPES, PostgresPaidOrderStore, PostgresRetainerStore, RETAINER_CURRENCY, RETAINER_EVENT_TYPES, RETAINER_PRICE_AMOUNT, RETAINER_SCOPE, RETAINER_SITE_URL, type PaidOrderStore, type RetainerStore } from "./paid-order-store.js";
 
 const HANDLED_STRIPE_EVENTS = new Set([
   "payment_intent.created",
@@ -60,6 +62,11 @@ const HANDLED_STRIPE_EVENTS = new Set([
   "payment_intent.succeeded",
   "payment_intent.payment_failed",
   "payment_intent.canceled",
+  "checkout.session.completed",
+  "invoice.paid",
+  "invoice.payment_failed",
+  "customer.subscription.updated",
+  "customer.subscription.deleted",
   "financial_connections.account.account_numbers_updated",
   "financial_connections.account.created",
   "financial_connections.account.deactivated",
@@ -100,12 +107,15 @@ export function clientIpAddress(request: Request): string | undefined {
 }
 
 export type AppDependencies = {
+  stripeClient?: Stripe;
   stripeAppEventStore?: StripeAppEventStore;
   purchasingOrchestrator?: CustomerPurchasingOrchestrator;
   purchasingOrchestratorFactory?: (config: RuntimeConfig, stripe: Stripe | undefined) => CustomerPurchasingOrchestrator | undefined;
   /** Alias retained for callers that name factories with a create prefix. */
   createPurchasingOrchestrator?: (config: RuntimeConfig, stripe: Stripe | undefined) => CustomerPurchasingOrchestrator | undefined;
   readinessAssessmentStore?: ReadinessAssessmentStore;
+  paidOrderStore?: PaidOrderStore;
+  retainerStore?: RetainerStore;
 };
 
 export function createDefaultPurchasingOrchestrator(
@@ -152,7 +162,8 @@ export function createApp(config: RuntimeConfig, dependencies: AppDependencies =
   const app = express();
   app.set("trust proxy", 1);
   const stripeMode = config.stripeMode ?? "test";
-  const stripe = config.stripeApiKey ? new Stripe(config.stripeApiKey, { apiVersion: STRIPE_API_VERSION }) : undefined;
+  const stripe = dependencies.stripeClient
+    ?? (config.stripeApiKey ? new Stripe(config.stripeApiKey, { apiVersion: STRIPE_API_VERSION }) : undefined);
   const integration = stripe ? createStripeIntegration(stripe, config, createJsonResourceStore(".data/stripe-resources.json")) : undefined;
   const stripeEventStore = dependencies.stripeAppEventStore
     ?? (config.agenticEventsDatabaseUrl
@@ -164,6 +175,10 @@ export function createApp(config: RuntimeConfig, dependencies: AppDependencies =
     ?? createDefaultPurchasingOrchestrator(config, stripe);
   const readinessAssessmentStore = dependencies.readinessAssessmentStore
     ?? (config.agenticEventsDatabaseUrl ? new PostgresReadinessAssessmentStore(config.agenticEventsDatabaseUrl) : undefined);
+  const paidOrderStore = dependencies.paidOrderStore
+    ?? (config.agenticEventsDatabaseUrl ? new PostgresPaidOrderStore(config.agenticEventsDatabaseUrl) : undefined);
+  const retainerStore = dependencies.retainerStore
+    ?? (config.agenticEventsDatabaseUrl ? new PostgresRetainerStore(config.agenticEventsDatabaseUrl) : undefined);
   const testIntegration = stripeMode === "test" ? integration : undefined;
   const machinePayments = stripe && config.stripeProfileId
     ? stripeMachinePayments.create({
@@ -203,7 +218,7 @@ export function createApp(config: RuntimeConfig, dependencies: AppDependencies =
   app.use((_request, response, next) => {
     response.setHeader(
       "Content-Security-Policy",
-      "default-src 'self'; script-src 'self' https://js.stripe.com https://crypto-js.stripe.com; frame-src https://js.stripe.com https://hooks.stripe.com https://crypto-js.stripe.com https://*.stripe.com https://*.link.com; connect-src 'self' https://api.stripe.com https://crypto-js.stripe.com https://*.stripe.com https://*.link.com; img-src 'self' data: https://*.stripe.com https://*.link.com; style-src 'self'; font-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+      "default-src 'self'; script-src 'self' https://challenges.cloudflare.com https://js.stripe.com https://crypto-js.stripe.com; frame-src https://challenges.cloudflare.com https://verify.walletconnect.com https://verify.walletconnect.org https://js.stripe.com https://hooks.stripe.com https://crypto-js.stripe.com https://*.stripe.com https://*.link.com https://auth.privy.io https://*.privy.io; connect-src 'self' wss://relay.walletconnect.com wss://relay.walletconnect.org wss://www.walletlink.org https://explorer-api.walletconnect.com https://api.stripe.com https://crypto-js.stripe.com https://*.stripe.com https://*.link.com https://auth.privy.io https://api.privy.io https://*.privy.systems wss://*.privy.systems; img-src 'self' data: blob: https://*.stripe.com https://*.link.com https://*.privy.io; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; worker-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
     );
     response.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
     response.setHeader("X-Content-Type-Options", "nosniff");
@@ -251,14 +266,42 @@ export function createApp(config: RuntimeConfig, dependencies: AppDependencies =
         return;
       }
 
+      let event: Stripe.Event;
       try {
-        const event = Stripe.webhooks.constructEvent(
+        event = Stripe.webhooks.constructEvent(
           request.body as Buffer,
           signature,
           config.stripeWebhookSecret
         );
+      } catch {
+        response.status(400).json({ error: "Invalid Stripe webhook signature." });
+        return;
+      }
 
+      try {
         const eventType = event.type as string;
+        if (RETAINER_EVENT_TYPES.has(eventType) && retainerStore) {
+          try {
+            await retainerStore.recordEvent(event);
+          } catch {
+            response.status(503).json({ error: "Retainer reconciliation is temporarily unavailable." });
+            return;
+          }
+        } else if (RETAINER_EVENT_TYPES.has(eventType) && stripeMode === "live") {
+          response.status(503).json({ error: "Retainer reconciliation is not configured." });
+          return;
+        }
+        if (PAYMENT_INTENT_EVENT_TYPES.has(eventType) && paidOrderStore) {
+          try {
+            await paidOrderStore.recordPaymentIntentEvent(event);
+          } catch {
+            response.status(503).json({ error: "Paid-order reconciliation is temporarily unavailable." });
+            return;
+          }
+        } else if (eventType === "payment_intent.succeeded" && stripeMode === "live") {
+          response.status(503).json({ error: "Paid-order reconciliation is not configured." });
+          return;
+        }
         if (eventType === ONRAMP_WEBHOOK_EVENT_TYPE) {
           if (!purchasingOrchestrator) {
             response.status(503).json({ error: "The durable Stripe-Privy purchasing bridge is not fully configured.", code: "configuration_required" });
@@ -321,7 +364,7 @@ export function createApp(config: RuntimeConfig, dependencies: AppDependencies =
         }
         response.status(200).json({ received: true, handled, duplicate, eventId: event.id, eventType: event.type });
       } catch {
-        response.status(400).json({ error: "Invalid Stripe webhook signature." });
+        response.status(503).json({ error: "Stripe webhook processing is temporarily unavailable." });
       }
     }
   );
@@ -330,6 +373,7 @@ export function createApp(config: RuntimeConfig, dependencies: AppDependencies =
 
   app.use(express.json({ limit: "100kb" }));
   registerPurchasingRoutes(app, purchasingOrchestrator);
+  registerWalletClientRoutes(app, config);
   registerMcpRoutes(app, config);
   registerStripeAppUiRoutes(app, config);
   app.use("/assets", express.static(publicDirectory, { index: false, fallthrough: false }));
@@ -368,7 +412,7 @@ export function createApp(config: RuntimeConfig, dependencies: AppDependencies =
       return response.status(503).json({ error: "Stripe checkout credentials are not configured." });
     }
     const confirmationTokenId = request.body?.confirmationTokenId;
-    if (typeof confirmationTokenId !== "string" || !/^ct_[A-Za-z0-9_]+$/.test(confirmationTokenId)) {
+    if (typeof confirmationTokenId !== "string" || !/^ctoken_[A-Za-z0-9_]+$/.test(confirmationTokenId)) {
       return response.status(400).json({ error: "A valid ConfirmationToken ID is required." });
     }
     const customerEmail = normalizedEmail(request.body?.customerEmail);
@@ -426,6 +470,30 @@ export function createApp(config: RuntimeConfig, dependencies: AppDependencies =
 
   app.post("/checkout/:offerId/confirm-intent", (request, response) =>
     confirmCheckoutIntent(getCheckoutOffer(request.params.offerId), request, response));
+
+  app.post("/retainer/checkout-session", async (request, response) => {
+    response.setHeader("Cache-Control", "no-store");
+    if (!stripe || !config.stripePublishableKey) return response.status(503).json({ error: "Retainer checkout is not configured." });
+    if (request.body?.consent !== true || request.body?.scope !== RETAINER_SCOPE) return response.status(400).json({ error: "Explicit consent to the retainer scope is required." });
+    const customerEmail = normalizedEmail(request.body?.customerEmail);
+    if (!customerEmail) return response.status(400).json({ error: "A valid customer email address is required." });
+    const idempotencyKey = request.header("idempotency-key")?.trim() ?? "";
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,200}$/.test(idempotencyKey)) return response.status(400).json({ error: "A valid Idempotency-Key is required." });
+    try {
+      const session = await stripe.checkout.sessions.create({
+        mode: "subscription",
+        integration_identifier: `set-retainer-${crypto.createHash("sha256").update(idempotencyKey).digest("hex").slice(0, 16)}`,
+        customer_email: customerEmail,
+        success_url: `${RETAINER_SITE_URL}/thank-you?retainer_session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${RETAINER_SITE_URL}/retainer`,
+        line_items: [{ price_data: { currency: RETAINER_CURRENCY, product_data: { name: "Operations Assurance Retainer", description: "Monthly maintenance of a working on-ramp link." }, unit_amount: RETAINER_PRICE_AMOUNT, recurring: { interval: "month" } }, quantity: 1 }],
+        metadata: { seller: "SET Business Consults", offer: "operations-assurance-retainer-195-usd-monthly", scope: RETAINER_SCOPE, customer_consent: "true" },
+        subscription_data: { metadata: { seller: "SET Business Consults", offer: "operations-assurance-retainer-195-usd-monthly", scope: RETAINER_SCOPE } }
+      }, { idempotencyKey });
+      if (!session.url || session.livemode !== (stripeMode === "live")) return response.status(502).json({ error: "Stripe returned an invalid retainer Checkout Session." });
+      return response.status(201).json({ url: session.url, sessionId: session.id, amount: RETAINER_PRICE_AMOUNT, currency: RETAINER_CURRENCY, scope: RETAINER_SCOPE });
+    } catch { return response.status(502).json({ error: "Retainer Checkout Session creation failed." }); }
+  });
 
   app.get("/checkout/payment-intent/:paymentIntentId", async (request, response) => {
     response.setHeader("Cache-Control", "no-store");

@@ -40,7 +40,7 @@ describe("server-confirmed Payment Element", () => {
     );
 
     const offer = getCheckoutOffer("workflow-improvement-review-495-usd")!;
-    await integration.createAndConfirmPaymentIntent(offer, "ct_test_example", "buyer@example.com", "checkout_retry_12345678");
+    await integration.createAndConfirmPaymentIntent(offer, "ctoken_test_example", "buyer@example.com", "checkout_retry_12345678");
 
     expect(createCustomer).toHaveBeenCalledWith(
       {
@@ -56,7 +56,7 @@ describe("server-confirmed Payment Element", () => {
       currency: "usd",
       allowed_payment_method_types: ["card", "cashapp", "crypto", "us_bank_account", "customer_balance"],
       confirm: true,
-      confirmation_token: "ct_test_example",
+      confirmation_token: "ctoken_test_example",
       receipt_email: "buyer@example.com",
       customer: "cus_test_example",
       payment_method_options: {
@@ -101,7 +101,7 @@ describe("server-confirmed Payment Element", () => {
     );
 
     const offer = getCheckoutOffer("workflow-improvement-review-297-eur")!;
-    await integration.createAndConfirmPaymentIntent(offer, "ct_test_eur", "buyer@example.com", "checkout_retry_eur");
+    await integration.createAndConfirmPaymentIntent(offer, "ctoken_test_eur", "buyer@example.com", "checkout_retry_eur");
 
     expect(createCustomer).not.toHaveBeenCalled();
     expect(create).toHaveBeenCalledWith(

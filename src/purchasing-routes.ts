@@ -33,7 +33,7 @@ export function registerPurchasingRoutes(
     noStore(response);
     if (!orchestrator) return unavailable(response);
     try {
-      const purchase = await orchestrator.createRequest(request.body, request.header("authorization"));
+      const purchase = await orchestrator.createRequest(request.body, request.header("authorization"), request.header("idempotency-key"));
       return response.status(201).json({ purchase, executionAuthorized: false, nextGate: "wallet_selection_or_creation" });
     } catch (cause) {
       return fail(response, cause);
@@ -47,6 +47,18 @@ export function registerPurchasingRoutes(
     if (!requestId) return response.status(400).json({ error: "A valid purchase request ID is required.", code: "invalid_request" });
     try {
       return response.json({ purchase: await orchestrator.getStatus(requestId, request.header("authorization")) });
+    } catch (cause) {
+      return fail(response, cause);
+    }
+  });
+
+  app.get("/purchasing/requests/:requestId/resume", async (request, response) => {
+    noStore(response);
+    if (!orchestrator) return unavailable(response);
+    const requestId = routeRequestId(request);
+    if (!requestId) return response.status(400).json({ error: "A valid purchase request ID is required.", code: "invalid_request" });
+    try {
+      return response.json({ ...(await orchestrator.resumeSession(requestId, request.header("authorization"))), executionAuthorized: true, nextGate: "customer_completes_stripe_payment_and_kyc" });
     } catch (cause) {
       return fail(response, cause);
     }

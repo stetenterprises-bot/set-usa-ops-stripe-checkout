@@ -10,6 +10,7 @@ import {
 } from "../src/stripe-app.js";
 import { InMemoryReadinessAssessmentStore } from "../src/readiness-assessment-store.js";
 import { readinessDomains, type ReadinessAssessmentInput } from "../src/readiness-assessment.js";
+import { RETAINER_SCOPE } from "../src/paid-order-store.js";
 
 const readinessInput = (): ReadinessAssessmentInput => ({
   workflow: { name: "Test agent checkout", intendedUsers: "agents", targetEnvironment: "sandbox" },
@@ -101,6 +102,31 @@ describe("development server", () => {
     log.mockRestore();
   });
 
+  it("returns 503 when a verified webhook cannot be persisted", async () => {
+    const webhookSecret = ["whsec", "storage", "unitvalue"].join("_");
+    const payload = JSON.stringify({
+      id: "evt_storage_failure",
+      object: "event",
+      type: "payment_intent.succeeded",
+      livemode: false,
+      data: { object: { id: "pi_storage_failure", object: "payment_intent", status: "succeeded", metadata: { seller: "SET Business Consults", offer: "workflow-improvement-review-495-usd" }, amount: 49_500, currency: "usd" } }
+    });
+    const signature = Stripe.webhooks.generateTestHeaderString({ payload, secret: webhookSecret });
+    const eventStore = { claim: vi.fn().mockRejectedValue(new Error("database unavailable")) };
+    const response = await request(createApp({
+      port: 4242,
+      applicationBaseUrl: "http://127.0.0.1:4242",
+      stripeWebhookSecret: webhookSecret
+    }, { stripeAppEventStore: eventStore }))
+      .post("/webhooks/stripe")
+      .set("content-type", "application/json")
+      .set("stripe-signature", signature)
+      .send(payload);
+
+    expect(response.status).toBe(503);
+    expect(response.body.error).toContain("processing");
+  });
+
   it("fails closed when the paid API is not configured", async () => {
     const response = await request(createApp({ port: 4242, applicationBaseUrl: "http://127.0.0.1:4242" }))
       .post("/paid")
@@ -122,7 +148,7 @@ describe("development server", () => {
   it("fails closed when embedded Checkout credentials are not configured", async () => {
     const app = createApp({ port: 4242, applicationBaseUrl: "http://127.0.0.1:4242" });
     expect((await request(app).get("/checkout/config")).status).toBe(503);
-    expect((await request(app).post("/checkout/confirm-intent").send({ confirmationTokenId: "ct_test_example", customerEmail: "buyer@example.com" })).status).toBe(503);
+    expect((await request(app).post("/checkout/confirm-intent").send({ confirmationTokenId: "ctoken_test_example", customerEmail: "buyer@example.com" })).status).toBe(503);
   });
 
   it("fails closed for the durable purchasing routes when the bridge is unconfigured", async () => {
@@ -171,7 +197,7 @@ describe("development server", () => {
       .post("/purchasing/requests")
       .send({ cryptocurrency: "USDC" });
     expect(createResponse.status).toBe(201);
-    expect(createPurchaseRequest).toHaveBeenCalledWith({ cryptocurrency: "USDC" }, undefined);
+    expect(createPurchaseRequest).toHaveBeenCalledWith({ cryptocurrency: "USDC" }, undefined, undefined);
 
     const payload = JSON.stringify({
       id: "evt_purchasing_onramp",
@@ -358,10 +384,55 @@ describe("development server", () => {
 
     const response = await request(app)
       .post("/checkout/confirm-intent")
-      .send({ confirmationTokenId: "ct_test_example", customerEmail: "not-an-email" });
+      .send({ confirmationTokenId: "ctoken_test_example", customerEmail: "not-an-email" });
 
     expect(response.status).toBe(400);
     expect(response.body.error).toContain("valid customer email");
+  });
+
+  it("requires explicit scope consent before creating the monthly retainer Checkout Session", async () => {
+    const app = createApp({
+      port: 4242,
+      applicationBaseUrl: "http://127.0.0.1:4242",
+      stripeApiKey: ["sk", "test", "unitvalue"].join("_"),
+      stripePublishableKey: ["pk", "test", "unitvalue"].join("_")
+    });
+    const response = await request(app)
+      .post("/retainer/checkout-session")
+      .set("idempotency-key", "retainer_test_12345678")
+      .send({ customerEmail: "buyer@example.com", consent: true, scope: "different scope" });
+    expect(response.status).toBe(400);
+    expect(response.body.error).toContain("scope");
+  });
+
+  it("uses stable Checkout parameters for safe retainer retries", async () => {
+    const create = vi.fn().mockResolvedValue({ id: "cs_retainer", url: "https://checkout.stripe.test/cs_retainer", livemode: false });
+    const stripe = { checkout: { sessions: { create } } } as unknown as Stripe;
+    const app = createApp({
+      port: 4242,
+      applicationBaseUrl: "https://render.example",
+      stripeApiKey: ["sk", "test", "unitvalue"].join("_"),
+      stripePublishableKey: ["pk", "test", "unitvalue"].join("_")
+    }, { stripeClient: stripe });
+
+    const body = { customerEmail: "buyer@example.com", consent: true, scope: RETAINER_SCOPE };
+    const first = await request(app).post("/retainer/checkout-session").set("idempotency-key", "retainer_retry_12345678").send(body);
+    const retry = await request(app).post("/retainer/checkout-session").set("idempotency-key", "retainer_retry_12345678").send(body);
+
+    expect(first.status).toBe(201);
+    expect(retry.status).toBe(201);
+    expect(create).toHaveBeenCalledTimes(2);
+    const [firstParams, firstOptions] = create.mock.calls[0]!;
+    const [retryParams, retryOptions] = create.mock.calls[1]!;
+    expect(firstParams).toMatchObject({
+      mode: "subscription",
+      customer_email: "buyer@example.com",
+      success_url: "https://ledgerline-compliance.sthomas935.chatgpt.site/thank-you?retainer_session_id={CHECKOUT_SESSION_ID}",
+      cancel_url: "https://ledgerline-compliance.sthomas935.chatgpt.site/retainer"
+    });
+    expect(retryParams.integration_identifier).toBe(firstParams.integration_identifier);
+    expect(firstOptions).toEqual({ idempotencyKey: "retainer_retry_12345678" });
+    expect(retryOptions).toEqual(firstOptions);
   });
 
   it("does not expose sandbox-only account routes in live mode", async () => {

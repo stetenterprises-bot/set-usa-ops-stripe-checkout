@@ -69,6 +69,30 @@ function authenticatedPrivy(): PrivyPurchaseBridge {
 }
 
 describe("customer purchasing orchestrator", () => {
+  it("reuses a customer-scoped intake key and rejects changed purchase details", async () => {
+    let current: PurchaseRequestRecord | null = null;
+    const store = {
+      createRequest: vi.fn(async (input) => {
+        current ??= purchaseRecord({ request_id: input.requestId, state: "intake", normalized_intake: input.intake });
+        return current;
+      })
+    } as unknown as PostgresPurchaseStore;
+    const orchestrator = new CustomerPurchasingOrchestrator({ store, privy: authenticatedPrivy(), stripe: { rawRequest: vi.fn() } as never, approvalSigningKey: "a".repeat(32), onrampMode: "sandbox" });
+    const intake = purchaseRecord().normalized_intake;
+    const first = await orchestrator.createRequest(intake, "Bearer test", "intake-retry-key");
+    const second = await orchestrator.createRequest(intake, "Bearer test", "intake-retry-key");
+    expect(second.requestId).toBe(first.requestId);
+    await expect(orchestrator.createRequest({ ...intake, source_budget: "30" }, "Bearer test", "intake-retry-key")).rejects.toMatchObject({ code: "idempotency_conflict", status: 409 });
+  });
+
+  it("refuses to resume another customer's session before contacting Stripe", async () => {
+    const rawRequest = vi.fn();
+    const store = { getRequest: vi.fn().mockResolvedValue(purchaseRecord({ owner_privy_user_id: "did:privy:other", state: "awaiting_customer", onramp_session_id: "cos_existing" })) } as unknown as PostgresPurchaseStore;
+    const orchestrator = new CustomerPurchasingOrchestrator({ store, privy: authenticatedPrivy(), stripe: { rawRequest } as never, approvalSigningKey: "a".repeat(32), onrampMode: "sandbox" });
+    await expect(orchestrator.resumeSession("req_quote", "Bearer test")).rejects.toMatchObject({ code: "forbidden" });
+    expect(rawRequest).not.toHaveBeenCalled();
+  });
+
   it("uses one Stripe amount constraint and surfaces a fiat-budget comparison when both amounts were requested", async () => {
     let current = purchaseRecord();
     const store = {

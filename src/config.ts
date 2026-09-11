@@ -107,6 +107,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConfig 
     throw new Error("PURCHASE_APPROVAL_SIGNING_KEY must contain at least 32 bytes.");
   }
 
+
   if (Boolean(stripeLinkOauthClientId) !== Boolean(stripeLinkOauthClientSecret)) {
     throw new Error("STRIPE_LINK_OAUTH_CLIENT_ID and STRIPE_LINK_OAUTH_CLIENT_SECRET must be configured together.");
   }
@@ -161,6 +162,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConfig 
     ...(privyAppId ? { privyAppId } : {}),
     ...(privyAppSecret ? { privyAppSecret } : {}),
     ...(privyJwtVerificationKey ? { privyJwtVerificationKey } : {}),
-    ...(purchaseApprovalSigningKey ? { purchaseApprovalSigningKey } : {})
+    ...(purchaseApprovalSigningKey ? { purchaseApprovalSigningKey } : {}),
   };
 }

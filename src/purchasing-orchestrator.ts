@@ -174,13 +174,17 @@ export class CustomerPurchasingOrchestrator {
     this.quoteReviewWindowSeconds = options.quoteReviewWindowSeconds ?? 60;
   }
 
-  async createRequest(input: IntakeInput, authorization: string | undefined): Promise<SafePurchaseStatus> {
+  async createRequest(input: IntakeInput, authorization: string | undefined, idempotencyKey?: string): Promise<SafePurchaseStatus> {
     const intake = normalizeIntake(input);
     const geography = preflightPublicOnrampGeography(intake.customer_geography);
     if (!geography.eligible) error(geography.code, geography.reason, 422);
     // Normalize and preflight before authentication, but do not persist an
     // unowned public request. The verified Privy subject is its owner at insert.
     const claims = await this.privy.authenticate(authorization);
+    if (idempotencyKey !== undefined) {
+      if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,200}$/.test(idempotencyKey)) error("invalid_request", "A valid Idempotency-Key is required.");
+      intake.request_id = `req_${crypto.createHash("sha256").update(JSON.stringify([claims.userId, idempotencyKey])).digest("hex")}`;
+    }
     const normalized = { ...intake, customer_geography: geography.normalizedGeography };
     const record = await this.store.createRequest({
       requestId: normalized.request_id,
@@ -188,6 +192,13 @@ export class CustomerPurchasingOrchestrator {
       intake: normalized,
       onrampMode: this.onrampMode
     });
+    if (record.owner_privy_user_id !== claims.userId) error("forbidden", "The purchase belongs to another user.", 403);
+    // Compare normalized values independently of database JSON key ordering.
+    if (idempotencyKey && Object.keys(normalized).some((key) => key === "exact_answers"
+      ? Object.entries(normalized.exact_answers).some(([answer, value]) => record.normalized_intake.exact_answers[answer as keyof typeof normalized.exact_answers] !== value)
+      : record.normalized_intake[key as keyof typeof normalized] !== normalized[key as keyof typeof normalized])) {
+      error("idempotency_conflict", "This request key was already used for different purchase details.", 409);
+    }
     return safeStatus(record);
   }
 
@@ -197,6 +208,31 @@ export class CustomerPurchasingOrchestrator {
     if (!record.owner_privy_user_id) error("ownership_unbound", "Authenticate the purchase request through wallet preparation before reading it.", 409);
     if (record.owner_privy_user_id !== claims.userId) error("forbidden", "The purchase request belongs to another user.", 403);
     return safeStatus(record);
+  }
+
+  /** Resume an already-created Onramp session after a browser restart.
+   * This returns a client secret only to the authenticated owner and never
+   * creates a replacement session.
+   */
+  async resumeSession(requestId: string, authorization: string | undefined): Promise<{ purchase: SafePurchaseStatus; clientSecret: string; sessionId: string }> {
+    const claims = await this.privy.authenticate(authorization);
+    const record = await this.requireRequest(requestId);
+    if (record.owner_privy_user_id !== claims.userId) error("forbidden", "The purchase request belongs to another user.", 403);
+    if (record.state !== "awaiting_customer" || !record.onramp_session_id) {
+      error("invalid_state", "There is no resumable Onramp session for this purchase.", 409);
+    }
+    try {
+      const response = await this.stripe.rawRequest("GET", `/v1/crypto/onramp_sessions/${encodeURIComponent(record.onramp_session_id)}`, {});
+      const rawSession = stripeRawResponseData<unknown>(response);
+      const session = rawSession && typeof rawSession === "object" ? rawSession as Record<string, unknown> : null;
+      if (!session || session.id !== record.onramp_session_id || typeof session.client_secret !== "string" || session.livemode !== (record.onramp_mode === "live")) {
+        throw new Error("Stripe returned an invalid existing Onramp session.");
+      }
+      return { purchase: safeStatus(record), clientSecret: session.client_secret, sessionId: record.onramp_session_id };
+    } catch {
+      await this.store.enqueueRecovery(record.request_id, "existing_session_resume_failed", "The existing Onramp session could not be retrieved.");
+      error("session_resume_failed", "The existing Onramp session could not be safely resumed and was queued for reconciliation.", 503);
+    }
   }
 
   async prepareWallet(input: {
@@ -284,8 +320,11 @@ export class CustomerPurchasingOrchestrator {
     const claims = await this.privy.authenticate(authorization);
     let record = await this.requireRequest(requestId);
     if (record.owner_privy_user_id !== claims.userId) error("forbidden", "The purchase request belongs to another user.", 403);
+    if (!record.onramp_session_id && ["quote_ready", "awaiting_approval", "expired"].includes(record.state)) {
+      record = await this.store.transition(record.request_id, "awaiting_quote", "authenticated_customer", record.version);
+    }
     if (record.state !== "awaiting_quote" || !record.wallet_address || !record.privy_wallet_id) error("invalid_state", "A confirmed wallet is required before quoting.", 409);
-    const privyUserId = record.owner_privy_user_id;
+    const privyUserId = claims.userId;
     const privyWalletId = record.privy_wallet_id;
     const confirmedWalletAddress = record.wallet_address;
     const requestedSourceBudget = record.normalized_intake.source_budget;

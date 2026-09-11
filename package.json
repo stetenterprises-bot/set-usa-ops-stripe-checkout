@@ -9,10 +9,11 @@
   },
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "tsc -p tsconfig.build.json",
+    "build:wallet": "node node_modules/vite/bin/vite.js build --config src/wallet-client/vite.config.ts",
+    "build": "tsc -p tsconfig.wallet.json && npm run build:wallet && tsc -p tsconfig.build.json",
     "start": "node dist/src/server.js",
-    "test": "vitest run",
-    "typecheck": "tsc --noEmit",
+    "test": "npm run build:wallet -- --logLevel error && vitest run",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.wallet.json",
     "scan:secrets": "node scripts/check-secrets.mjs",
     "verify": "npm run scan:secrets && npm run typecheck && npm test && npm run build",
     "stripe:whoami": "stripe whoami --format json",
@@ -23,10 +24,16 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@privy-io/node": "^0.34.0",
+    "@privy-io/react-auth": "^3.40.0",
+    "@solana-program/system": "^0.10.0",
+    "@solana-program/token": "^0.9.0",
+    "@solana/kit": "^5.5.1",
     "dotenv": "17.4.2",
     "express": "5.2.1",
     "mppx": "^0.8.19",
     "pg": "^8.23.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
     "stripe": "22.5.0",
     "zod": "^4.4.3"
   },
@@ -35,10 +42,18 @@
     "@types/express": "5.0.6",
     "@types/node": "26.2.0",
     "@types/pg": "^8.23.1",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
     "@types/supertest": "6.0.3",
+    "@vitejs/plugin-react": "^6.1.1",
     "supertest": "7.1.4",
     "tsx": "4.23.12",
-    "typescript": "7.0.2",
+    "typescript": "^5.9.3",
+    "vite": "^8.2.2",
     "vitest": "4.1.11"
+  },
+  "overrides": {
+    "ws": "^8.21.0",
+    "axios": "^1.18.0"
   }
 }
