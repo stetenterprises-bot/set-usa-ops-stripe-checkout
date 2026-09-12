@@ -82,7 +82,22 @@ describe("customer purchasing orchestrator", () => {
     const first = await orchestrator.createRequest(intake, "Bearer test", "intake-retry-key");
     const second = await orchestrator.createRequest(intake, "Bearer test", "intake-retry-key");
     expect(second.requestId).toBe(first.requestId);
+    expect(first.createdAt).toBe("2026-08-31T00:00:00.000Z");
+    expect(first.updatedAt).toBe("2026-08-31T00:00:00.000Z");
     await expect(orchestrator.createRequest({ ...intake, source_budget: "30" }, "Bearer test", "intake-retry-key")).rejects.toMatchObject({ code: "idempotency_conflict", status: 409 });
+  });
+
+  it("returns persisted purchase timestamps instead of generating current timestamps", async () => {
+    const store = { getRequest: vi.fn().mockResolvedValue(purchaseRecord({
+      created_at: "2024-01-02T03:04:05Z",
+      updated_at: "2024-02-03T04:05:06Z"
+    })) } as unknown as PostgresPurchaseStore;
+    const orchestrator = new CustomerPurchasingOrchestrator({ store, privy: authenticatedPrivy(), stripe: { rawRequest: vi.fn() } as never, approvalSigningKey: "a".repeat(32), onrampMode: "sandbox" });
+
+    const result = await orchestrator.getStatus("req_quote", "Bearer test");
+
+    expect(result.createdAt).toBe("2024-01-02T03:04:05.000Z");
+    expect(result.updatedAt).toBe("2024-02-03T04:05:06.000Z");
   });
 
   it("refuses to resume another customer's session before contacting Stripe", async () => {

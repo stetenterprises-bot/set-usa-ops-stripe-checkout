@@ -75,6 +75,7 @@ function WalletFlow({ config }: { config: WalletConfig }) {
   const [statusMessage, setStatusMessage] = useState("Authenticate to begin.");
   const [overageConfirmed, setOverageConfirmed] = useState(false);
   const [stripeState, setStripeState] = useState("Stripe Onramp has not started.");
+  const [dashboardSync, setDashboardSync] = useState("");
   const stripeMounted = useRef(false);
   const operationKeys = useRef(new Map<string, string>());
   const createRequestKey = useRef<string | null>(null);
@@ -202,7 +203,8 @@ function WalletFlow({ config }: { config: WalletConfig }) {
         const result = await request(`/purchasing/requests/${encodeURIComponent(purchase.requestId)}`);
         if (!stopped) {
           setPurchase(result.purchase);
-          if (terminal.has(result.purchase.state)) {
+          setDashboardSync(result.dashboardSync?.status ?? "");
+          if (terminal.has(result.purchase.state) && result.dashboardSync?.status !== "retry_pending") {
             setStatusMessage(`Purchase state: ${result.purchase.state}`);
             window.clearInterval(timer);
           }
@@ -267,6 +269,8 @@ function WalletFlow({ config }: { config: WalletConfig }) {
     {purchase && ["intake", "awaiting_authentication", "authenticated", "awaiting_wallet"].includes(purchase.state) && !walletResult && <button disabled={Boolean(busy)} onClick={() => { setBusy("Preparing wallet"); void prepareWallet(purchase.requestId).then(() => setBusy(null)).catch(showError); }}>Continue wallet selection</button>}
     {purchase && !purchase.sessionId && ["awaiting_quote", "quote_ready", "awaiting_approval", "expired"].includes(purchase.state) && <button disabled={Boolean(busy)} onClick={() => void getQuote(purchase.requestId)}>Get a fresh quote</button>}
     {purchase?.state === "fulfillment_complete" && <section className="card"><h2>Delivery verified</h2><p>{purchase.deliveredAmount} {purchase.asset.toUpperCase()} to {purchase.wallet?.address}</p><p>Transaction <code>{purchase.transactionId}</code></p></section>}
+    {dashboardSync === "synced" && <p className="status">Purchase activity is synced to your approved client workspace.</p>}
+    {dashboardSync === "retry_pending" && <p className="status">Your purchase is retained. Client dashboard synchronization is retrying.</p>}
     {purchase && <section className="card"><h2>2. Wallet review</h2><p className="status">{statusMessage}</p><p>Request <code>{purchase.requestId}</code> · state <strong>{purchase.state}</strong></p>{walletResult?.status === "awaiting_wallet_creation_confirmation" && <button disabled={Boolean(busy)} onClick={() => { setBusy("Creating wallet"); void prepareWallet(purchase.requestId, { createWalletConfirmed: true }).then(() => setBusy(null)).catch(showError); }}>Confirm user-owned wallet creation</button>}{walletCandidates.length > 0 && <div className="wallet-list">{walletCandidates.map((wallet) => <div className="wallet" key={wallet.id}><code>{wallet.address}</code><span>{wallet.network}</span><button disabled={Boolean(busy) || !["awaiting_wallet", "awaiting_wallet_confirmation"].includes(purchase.state)} onClick={() => void confirmWallet(wallet.id)}>{busy ?? "Confirm this wallet"}</button></div>)}</div>}</section>}
     {review && !session && purchase && ["awaiting_approval", "approved", "session_creating", "reconciliation_required"].includes(purchase.state) && <section className="card"><h2>3. Quote and approval</h2><div className="quote"><p>Destination: <strong>{formatValue(review.constraintReview.estimatedDestinationAmount ?? review.quote.quote?.destinationAmount)} {purchase.asset.toUpperCase()}</strong></p><p>Quoted source total: <strong>{formatValue(review.constraintReview.quotedSourceTotalAmount ?? review.quote.sourceTotalAmount)} USD</strong></p><p>Wallet: <code>{review.approval.walletAddress}</code></p><p>Quote expires: <strong>{review.approval.expiresAt}</strong></p></div>{requiresOverage && <label className="check"><input type="checkbox" checked={overageConfirmed} onChange={(event) => setOverageConfirmed(event.target.checked)} /> I approve the quoted total above my original USD budget.</label>}<button disabled={Boolean(busy) || Boolean(requiresOverage && !overageConfirmed)} onClick={() => void approve()}>{busy ?? "Approve exact quote and open Stripe"}</button></section>}
     {session && <section className="card"><h2>4. Complete with Stripe</h2><p className="status">{stripeState}</p><p>{statusMessage}</p><div id="stripe-onramp" /></section>}

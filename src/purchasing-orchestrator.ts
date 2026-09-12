@@ -41,6 +41,8 @@ export type SafePurchaseStatus = {
   providerStatus: string | null;
   deliveredAmount: string | null;
   transactionId: string | null;
+  createdAt: string;
+  updatedAt: string;
   entitlement: { status: "locked" | "released"; type: string; releasedAt: string | null };
 };
 
@@ -96,6 +98,8 @@ function safeStatus(record: PurchaseRequestRecord): SafePurchaseStatus {
     providerStatus: record.provider_status,
     deliveredAmount: record.delivered_amount,
     transactionId: record.transaction_id,
+    createdAt: dateString(record.created_at) ?? "",
+    updatedAt: dateString(record.updated_at) ?? "",
     entitlement: {
       status: record.entitlement_status ?? "locked",
       type: record.entitlement_type ?? "verified_crypto_delivery",
