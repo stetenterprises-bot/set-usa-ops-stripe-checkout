@@ -4,7 +4,7 @@ Public site: https://ledgerline-compliance.sthomas935.chatgpt.site
 
 ## Published implementation
 
-- Sites version 62, source `b42612695905a322e8a77f2a6394b8a910a6d300`; deployment `appgdep_6aa73515bfa48191b16db0541210009f` succeeded, environment revision 11, public audience.
+- Sites version 63, source `0ef0513f9e044dbea592c6056911935018f3a6de`; deployment `appgdep_6aa736ffc3148191b5efea622d6b0845` succeeded, environment revision 11, public audience. Version 62 introduced the functional changes; version 63 aligns public terms, discovery and canonical URLs. Live content verification passed for the final changes.
 - Backend application source `2ed3cd74bf1db534779a8ed7d958210fcfb6dc3b` pushed to Render's deployment branch. The live wallet bundle contains the new recovery action; the live MCP tool returns the new retainer contract.
 - Contract: $195 USD/month for maintenance of a working on-ramp link. Verified payment unlocks the hosted launch kit; signed paid checkout events create or attach a client workspace. Custom domains and bespoke integrations remain operator follow-up.
 - Wallet flow: customer Privy authentication, owned wallet confirmation, current quote and budget consent, embedded Stripe session, durable resume, provider-confirmed amount/address/network/transaction evidence. Recovery export uses a browser-generated HPKE recipient; only encrypted export material passes through SET.
