@@ -20,9 +20,12 @@ describe("SET commerce MCP server", () => {
 
     expect(tools.tools.map((tool) => tool.name)).toEqual([
       "get_commerce_readiness",
-      "prepare_crypto_acquisition"
+      "prepare_crypto_acquisition",
+      "get_onramp_maintenance_offer"
     ]);
     expect(tools.tools.every((tool) => tool.annotations?.readOnlyHint === true)).toBe(true);
+    const offer = await client.callTool({ name: "get_onramp_maintenance_offer", arguments: {} });
+    expect(offer.structuredContent).toMatchObject({ amountMinor: 19500, currency: "usd", interval: "month", executionAuthorized: false });
 
     const readiness = await client.callTool({ name: "get_commerce_readiness", arguments: {} });
     expect(readiness.structuredContent).toMatchObject({

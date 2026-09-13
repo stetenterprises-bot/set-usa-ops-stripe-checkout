@@ -38,6 +38,16 @@ Then run `npm run dev` and open one of the checkout URLs above. Stripe returns t
 
 ## $0.50 machine-payment API
 
+## Current live product: $195/month Operations Assurance Retainer
+
+The current customer product is a **$195 USD monthly retainer** for maintenance of a working Stripe-hosted onramp link. The customer starts at `POST /retainer/checkout-session` after explicitly consenting to the retainer scope. Stripe Checkout and Stripe Billing handle the subscription payment; the success return is `/retainer/welcome?session_id={CHECKOUT_SESSION_ID}`.
+
+The welcome flow can verify the canonical Checkout Session through `GET /retainer/checkout-session/:sessionId/status`. That route accepts only a mode-matching `cs_test_` or `cs_live_` ID, retrieves the Session with its subscription expanded, and returns a paid result only for the SET retainer metadata, exact `$195 USD` amount, paid Checkout status, and an active or trialing subscription. It returns only `paid`, an optional `subscriptionStatus`, and the approved product URL. It does not expose customer identifiers.
+
+After verified payment, the customer receives the approved retainer product access through the deployed Site flow. Stripe and Privy are third-party providers used by the workflow; SET does not represent those provider technologies as SET-owned. Customer authentication, OTP or other provider verification, KYC, payment entry, and any customer-controlled wallet action remain customer/provider steps. No live final crypto transaction has been executed as part of this release evidence.
+
+The existing `POST /mcp` endpoint is read-only discovery and intake. The existing `POST /paid` endpoint is a separate `$0.50 USD` Agentic Commerce Readiness Assessment. Neither endpoint is the $195 retainer checkout and neither one grants retainer product access.
+
 ## Crypto - Fiat embedded onramp
 
 `GET /crypto-fiat` hosts Stripe's public-preview Embedded Onramp for US customers outside Hawaii. The customer selects an asset/network pair, supplies and confirms a public wallet address, and explicitly authorizes creation of one Onramp session. Stripe collects identity and payment information in its hosted embedded interface; the SET backend receives neither payment credentials nor wallet recovery material.
@@ -168,6 +178,8 @@ git config core.hooksPath .githooks
 - `[V]` Webhook requests fail closed unless the signature can be verified.
 - `[V]` The live SET account, production deployment, and dedicated PaymentIntent webhook endpoint were inspected on 2026-08-24.
 - `[D]` No live payment was submitted during implementation or verification. Fulfillment remains a manual, webhook-verified operating step until a durable reconciliation store is added.
+
+Historical release matrices and older blueprint sections describe earlier disabled or separately scoped `$495` review, PaymentIntent, connected-account, and execution-wallet concepts. They remain historical implementation records and should not be read as the current `$195/month` retainer offer or as evidence of customer revenue, customer funding, passive-income results, a custom domain, or a completed live crypto transaction.
 
 ## Blueprint routes
 

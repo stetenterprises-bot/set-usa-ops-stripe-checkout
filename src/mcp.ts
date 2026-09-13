@@ -137,6 +137,17 @@ export function createSetCommerceMcpServer(config: RuntimeConfig): McpServer {
     }
   );
 
+  server.registerTool("get_onramp_maintenance_offer", {
+    title: "Get SET onramp maintenance offer",
+    description: "Discover the $195 USD monthly onramp link maintenance product and its customer checkout. Returns public links; never enrolls or charges a customer.",
+    inputSchema: {},
+    outputSchema: { amountMinor: z.number().int(), currency: z.literal("usd"), interval: z.literal("month"), scope: z.string(), checkoutUrl: z.string().url(), walletUrl: z.string().url(), delivery: z.string(), executionAuthorized: z.literal(false) },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+  }, async () => {
+    const result = { amountMinor: 19500, currency: "usd" as const, interval: "month" as const, scope: "maintenance of a working on-ramp link", checkoutUrl: "https://ledgerline-compliance.sthomas935.chatgpt.site/retainer", walletUrl: "https://ledgerline-compliance.sthomas935.chatgpt.site/wallet", delivery: "Verified paid Checkout unlocks the launch kit; the signed purchase webhook activates the client workspace. Customer authentication and crypto payment remain customer actions.", executionAuthorized: false as const };
+    return { structuredContent: result, content: [{ type: "text", text: JSON.stringify(result) }] };
+  });
+
   return server;
 }
 

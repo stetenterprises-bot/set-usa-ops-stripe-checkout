@@ -63,6 +63,7 @@ const HANDLED_STRIPE_EVENTS = new Set([
   "payment_intent.payment_failed",
   "payment_intent.canceled",
   "checkout.session.completed",
+  "checkout.session.async_payment_succeeded",
   "invoice.paid",
   "invoice.payment_failed",
   "customer.subscription.updated",
@@ -484,7 +485,7 @@ export function createApp(config: RuntimeConfig, dependencies: AppDependencies =
         mode: "subscription",
         integration_identifier: `set-retainer-${crypto.createHash("sha256").update(idempotencyKey).digest("hex").slice(0, 16)}`,
         customer_email: customerEmail,
-        success_url: `${RETAINER_SITE_URL}/thank-you?retainer_session_id={CHECKOUT_SESSION_ID}`,
+        success_url: `${RETAINER_SITE_URL}/retainer/welcome?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${RETAINER_SITE_URL}/retainer`,
         line_items: [{ price_data: { currency: RETAINER_CURRENCY, product_data: { name: "Operations Assurance Retainer", description: "Monthly maintenance of a working on-ramp link." }, unit_amount: RETAINER_PRICE_AMOUNT, recurring: { interval: "month" } }, quantity: 1 }],
         metadata: { seller: "SET Business Consults", offer: "operations-assurance-retainer-195-usd-monthly", scope: RETAINER_SCOPE, customer_consent: "true" },
@@ -493,6 +494,39 @@ export function createApp(config: RuntimeConfig, dependencies: AppDependencies =
       if (!session.url || session.livemode !== (stripeMode === "live")) return response.status(502).json({ error: "Stripe returned an invalid retainer Checkout Session." });
       return response.status(201).json({ url: session.url, sessionId: session.id, amount: RETAINER_PRICE_AMOUNT, currency: RETAINER_CURRENCY, scope: RETAINER_SCOPE });
     } catch { return response.status(502).json({ error: "Retainer Checkout Session creation failed." }); }
+  });
+
+  app.get("/retainer/checkout-session/:sessionId/status", async (request, response) => {
+    response.setHeader("Cache-Control", "no-store");
+    const sessionId = request.params.sessionId;
+    if (!/^cs_(?:test|live)_[A-Za-z0-9]+$/.test(sessionId) || !stripe) {
+      return response.status(!stripe ? 503 : 400).json({ error: !stripe ? "Retainer checkout is not configured." : "Invalid Checkout Session ID." });
+    }
+    const expectedLiveMode = stripeMode === "live";
+    if (sessionId.startsWith("cs_live_") !== expectedLiveMode) {
+      return response.status(400).json({ error: "Checkout Session mode does not match this service." });
+    }
+    try {
+      const session = await stripe.checkout.sessions.retrieve(sessionId, { expand: ["subscription"] });
+      const metadata = session.metadata ?? {};
+      const subscription = typeof session.subscription === "object" && session.subscription !== null ? session.subscription : null;
+      const subscriptionStatus = subscription && typeof subscription.status === "string" ? subscription.status : undefined;
+      const paid = session.livemode === expectedLiveMode &&
+        session.mode === "subscription" &&
+        session.payment_status === "paid" &&
+        (subscriptionStatus === "active" || subscriptionStatus === "trialing") &&
+        session.amount_total === RETAINER_PRICE_AMOUNT &&
+        session.currency === RETAINER_CURRENCY &&
+        metadata.seller === "SET Business Consults" &&
+        metadata.offer === "operations-assurance-retainer-195-usd-monthly";
+      return response.json({
+        paid,
+        ...(subscriptionStatus ? { subscriptionStatus } : {}),
+        ...(paid ? { productUrl: `${RETAINER_SITE_URL}/retainer/product` } : {})
+      });
+    } catch {
+      return response.status(502).json({ error: "Retainer Checkout Session lookup failed." });
+    }
   });
 
   app.get("/checkout/payment-intent/:paymentIntentId", async (request, response) => {

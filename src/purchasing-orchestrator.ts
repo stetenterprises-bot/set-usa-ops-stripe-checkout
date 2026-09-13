@@ -35,6 +35,7 @@ export type SafePurchaseStatus = {
   sourceCurrency: string;
   sourceAmount: string | null;
   destinationAmount: string | null;
+  requestedDestinationAmount: string | null;
   wallet: { id: string; address: string; chainType: string } | null;
   quote: { id: string; expiresAt: string | null; fees: Record<string, unknown> | null; expirySource: string | null } | null;
   sessionId: string | null;
@@ -88,6 +89,7 @@ function safeStatus(record: PurchaseRequestRecord): SafePurchaseStatus {
     sourceCurrency: record.source_currency,
     sourceAmount: record.source_amount,
     destinationAmount: record.destination_amount,
+    requestedDestinationAmount: record.normalized_intake.destination_amount,
     wallet: record.privy_wallet_id && record.wallet_address && record.wallet_chain_type
       ? { id: record.privy_wallet_id, address: record.wallet_address, chainType: record.wallet_chain_type }
       : null,
@@ -139,6 +141,14 @@ function walletAddressesMatch(network: string, expected: string, delivered: stri
   return network === "ethereum" || network === "base"
     ? expected.toLowerCase() === delivered.toLowerCase()
     : expected === delivered;
+}
+
+function requestedDestinationMatches(record: PurchaseRequestRecord, deliveredAmount: string): boolean {
+  // destination_amount on the persisted record is also populated from a quote
+  // for source-budget-only requests. The normalized intake is the durable
+  // indicator that the customer explicitly constrained the destination amount.
+  const requested = record.normalized_intake.destination_amount;
+  return requested === null || compareDecimals(requested, deliveredAmount) === 0;
 }
 
 function providerStatusCode(cause: unknown): number | null {
@@ -313,6 +323,26 @@ export class CustomerPurchasingOrchestrator {
     let updated = await this.store.transition(record.request_id, "wallet_confirmed", "authenticated_customer");
     updated = await this.store.transition(record.request_id, "awaiting_quote", "authenticated_customer");
     return safeStatus(updated);
+  }
+
+  async exportWallet(input: {
+    requestId: string;
+    authorization: string | undefined;
+    confirmed: boolean;
+    recipientPublicKey: string;
+  }): Promise<{ ciphertext: string; encapsulated_key: string; encryption_type: "HPKE" }> {
+    const claims = await this.privy.authenticate(input.authorization);
+    const record = await this.requireRequest(input.requestId);
+    if (record.owner_privy_user_id !== claims.userId) error("forbidden", "The purchase request belongs to another user.", 403);
+    if (!record.privy_wallet_id || !record.wallet_address || !record.wallet_chain_type) error("invalid_state", "A prepared customer wallet is required before export.", 409);
+    return this.privy.exportWallet({
+      authorization: input.authorization,
+      walletId: record.privy_wallet_id,
+      network: record.wallet_chain_type,
+      walletAddress: record.wallet_address,
+      confirmed: input.confirmed,
+      recipientPublicKey: input.recipientPublicKey
+    });
   }
 
   async prepareQuoteAndApproval(requestId: string, authorization: string | undefined): Promise<{
@@ -496,7 +526,8 @@ export class CustomerPurchasingOrchestrator {
       fulfillment.destinationCurrency?.toLowerCase() === record.destination_asset &&
       fulfillment.destinationNetwork?.toLowerCase() === record.destination_network &&
       Boolean(record.wallet_address) &&
-      walletAddressesMatch(record.destination_network, record.wallet_address as string, fulfillment.walletAddress);
+      walletAddressesMatch(record.destination_network, record.wallet_address as string, fulfillment.walletAddress) &&
+      requestedDestinationMatches(record, fulfillment.deliveredAmount);
     const delivery = {
       providerStatus: normalized.event.status,
       ...(completeEvidenceMatches ? { deliveredAmount: fulfillment.deliveredAmount, transactionId: fulfillment.transactionId } : {})
@@ -558,9 +589,10 @@ export class CustomerPurchasingOrchestrator {
           evidence.destinationCurrency?.toLowerCase() !== record.destination_asset ||
           evidence.destinationNetwork?.toLowerCase() !== record.destination_network ||
           !record.wallet_address ||
-          !walletAddressesMatch(record.destination_network, record.wallet_address, evidence.walletAddress)
+          !walletAddressesMatch(record.destination_network, record.wallet_address, evidence.walletAddress) ||
+          !requestedDestinationMatches(record, evidence.deliveredAmount)
         )) {
-          await this.store.rescheduleRecovery(record.request_id, "Provider fulfillment does not match the confirmed asset, network, and wallet.", 300);
+          await this.store.rescheduleRecovery(record.request_id, "Provider fulfillment does not match the confirmed asset, network, wallet, or requested destination amount.", 300);
           deferred += 1;
           continue;
         }

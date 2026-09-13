@@ -81,6 +81,42 @@ describe("durable retainer billing store", () => {
     ]);
   });
 
+  it("records a paid asynchronous Checkout completion as paid retainer evidence", async () => {
+    const db = databaseReturning({ rowCount: 1 }, { rowCount: 1 }, { rowCount: 1 }, { rowCount: 1 });
+    const store = new PostgresRetainerStore(db);
+    await store.recordEvent(event("checkout.session.async_payment_succeeded", {
+      id: "cs_async_paid",
+      subscription: "sub_async_paid",
+      customer: "cus_async_paid",
+      mode: "subscription",
+      payment_status: "paid",
+      amount_total: 19_500,
+      currency: "usd",
+      metadata: checkoutMetadata,
+      line_items: { data: [{ price: { unit_amount: 19_500, currency: "usd", recurring: { interval: "month" } } }] }
+    }, 215));
+
+    expect(db.calls.mock.calls[2]?.[1]).toEqual([
+      "sub_async_paid", "cus_async_paid", null, "paid", "paid", 215, 19_500, "usd", RETAINER_SCOPE, false, "evt_checkout_session_async_payment_succeeded_215", 215, 0, 215
+    ]);
+  });
+
+  it("does not treat an unpaid asynchronous Checkout completion as paid evidence", async () => {
+    const query = vi.fn();
+    const store = new PostgresRetainerStore({ query });
+    await store.recordEvent(event("checkout.session.async_payment_succeeded", {
+      id: "cs_async_unpaid",
+      subscription: "sub_async_unpaid",
+      mode: "subscription",
+      payment_status: "unpaid",
+      amount_total: 19_500,
+      currency: "usd",
+      metadata: checkoutMetadata
+    }, 216));
+
+    expect(query).not.toHaveBeenCalled();
+  });
+
   it("does not treat an active subscription event as payment evidence", async () => {
     const db = databaseReturning({ rowCount: 1 }, { rowCount: 1 }, { rowCount: 1 }, { rowCount: 1 });
     const store = new PostgresRetainerStore(db);

@@ -112,6 +112,26 @@ export function registerPurchasingRoutes(
     }
   });
 
+  app.post("/purchasing/requests/:requestId/wallet/export", async (request, response) => {
+    noStore(response);
+    if (!orchestrator) return unavailable(response);
+    const requestId = routeRequestId(request);
+    if (!requestId) return response.status(400).json({ error: "A valid purchase request ID is required.", code: "invalid_request" });
+    if (request.body?.confirmed !== true || typeof request.body?.recipientPublicKey !== "string") {
+      return response.status(400).json({ error: "Explicit confirmation and recipientPublicKey are required.", code: "confirmation_required" });
+    }
+    try {
+      return response.json(await orchestrator.exportWallet({
+        requestId,
+        authorization: request.header("authorization"),
+        confirmed: true,
+        recipientPublicKey: request.body.recipientPublicKey
+      }));
+    } catch (cause) {
+      return fail(response, cause);
+    }
+  });
+
   app.post("/purchasing/requests/:requestId/quote", async (request, response) => {
     noStore(response);
     if (!orchestrator) return unavailable(response);

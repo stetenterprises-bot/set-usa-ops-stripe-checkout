@@ -427,12 +427,79 @@ describe("development server", () => {
     expect(firstParams).toMatchObject({
       mode: "subscription",
       customer_email: "buyer@example.com",
-      success_url: "https://ledgerline-compliance.sthomas935.chatgpt.site/thank-you?retainer_session_id={CHECKOUT_SESSION_ID}",
+      success_url: "https://ledgerline-compliance.sthomas935.chatgpt.site/retainer/welcome?session_id={CHECKOUT_SESSION_ID}",
       cancel_url: "https://ledgerline-compliance.sthomas935.chatgpt.site/retainer"
     });
     expect(retryParams.integration_identifier).toBe(firstParams.integration_identifier);
     expect(firstOptions).toEqual({ idempotencyKey: "retainer_retry_12345678" });
     expect(retryOptions).toEqual(firstOptions);
+  });
+
+  it("returns canonical paid subscription status without exposing customer identifiers", async () => {
+    const retrieve = vi.fn().mockResolvedValue({
+      id: "cs_test_status123",
+      livemode: false,
+      mode: "subscription",
+      payment_status: "paid",
+      amount_total: 19_500,
+      currency: "usd",
+      metadata: { seller: "SET Business Consults", offer: "operations-assurance-retainer-195-usd-monthly" },
+      subscription: { status: "active", current_period_end: 1_800_000_000 },
+      customer: "cus_private",
+      customer_email: "private@example.com"
+    });
+    const stripe = { checkout: { sessions: { retrieve } } } as unknown as Stripe;
+    const app = createApp({
+      port: 4242,
+      stripeMode: "test",
+      applicationBaseUrl: "http://127.0.0.1:4242",
+      stripeApiKey: ["sk", "test", "unitvalue"].join("_"),
+      stripePublishableKey: ["pk", "test", "unitvalue"].join("_")
+    }, { stripeClient: stripe });
+
+    const response = await request(app).get("/retainer/checkout-session/cs_test_status123/status");
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      paid: true,
+      subscriptionStatus: "active",
+      productUrl: "https://ledgerline-compliance.sthomas935.chatgpt.site/retainer/product"
+    });
+    expect(response.headers["cache-control"]).toBe("no-store");
+    expect(response.text).not.toContain("cus_private");
+    expect(response.text).not.toContain("private@example.com");
+    expect(retrieve).toHaveBeenCalledWith("cs_test_status123", { expand: ["subscription"] });
+  });
+
+  it("does not grant access from an unpaid or non-retainer Checkout Session", async () => {
+    const retrieve = vi.fn().mockResolvedValue({
+      id: "cs_test_unpaid123",
+      livemode: false,
+      mode: "subscription",
+      payment_status: "unpaid",
+      amount_total: 19_500,
+      currency: "usd",
+      metadata: { seller: "other", offer: "other" },
+      subscription: { status: "canceled" }
+    });
+    const stripe = { checkout: { sessions: { retrieve } } } as unknown as Stripe;
+    const app = createApp({ port: 4242, applicationBaseUrl: "http://127.0.0.1:4242", stripeApiKey: ["sk", "test", "unitvalue"].join("_"), stripePublishableKey: ["pk", "test", "unitvalue"].join("_") }, { stripeClient: stripe });
+
+    const response = await request(app).get("/retainer/checkout-session/cs_test_unpaid123/status");
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ paid: false, subscriptionStatus: "canceled" });
+  });
+
+  it("rejects Checkout Session IDs from the wrong Stripe mode", async () => {
+    const retrieve = vi.fn();
+    const stripe = { checkout: { sessions: { retrieve } } } as unknown as Stripe;
+    const app = createApp({ port: 4242, stripeMode: "test", applicationBaseUrl: "http://127.0.0.1:4242", stripeApiKey: ["sk", "test", "unitvalue"].join("_"), stripePublishableKey: ["pk", "test", "unitvalue"].join("_") }, { stripeClient: stripe });
+
+    const response = await request(app).get("/retainer/checkout-session/cs_live_wrongmode/status");
+
+    expect(response.status).toBe(400);
+    expect(retrieve).not.toHaveBeenCalled();
   });
 
   it("does not expose sandbox-only account routes in live mode", async () => {

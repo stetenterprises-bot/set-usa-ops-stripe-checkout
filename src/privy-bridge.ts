@@ -1,5 +1,5 @@
 import crypto, { type KeyObject } from "node:crypto";
-import { PrivyClient } from "@privy-io/node";
+import { generateAuthorizationSignatures, PrivyClient } from "@privy-io/node";
 
 export const PRIVY_DEFAULT_API_BASE_URL = "https://api.privy.io" as const;
 
@@ -43,6 +43,18 @@ export type PrivyWalletApi = {
     idempotencyKey: string;
   }): Promise<PrivyWalletRecord>;
 };
+
+export type EncryptedWalletExport = {
+  ciphertext: string;
+  encapsulated_key: string;
+  encryption_type: "HPKE";
+};
+
+export type PrivyWalletExportApi = (input: {
+  walletId: string;
+  userJwt: string;
+  recipientPublicKey: string;
+}) => Promise<EncryptedWalletExport>;
 
 export type WalletPreparationRequest = {
   authorization: string | undefined;
@@ -261,6 +273,7 @@ export type PrivyBridgeOptions = {
   api?: PrivyWalletApi;
   apiBaseUrl?: string;
   fetchImplementation?: typeof fetch;
+  exportWallet?: PrivyWalletExportApi;
 };
 
 /**
@@ -273,6 +286,7 @@ export class PrivyPurchaseBridge {
   private readonly api: PrivyWalletApi;
   private readonly operations = new Map<string, { fingerprint: string; result: WalletPreparationResult }>();
   private readonly inflight = new Map<string, { fingerprint: string; promise: Promise<WalletPreparationResult> }>();
+  private readonly exportWalletApi: PrivyWalletExportApi | undefined;
 
   constructor(options: PrivyBridgeOptions) {
     if (!/^[A-Za-z0-9_-]{10,128}$/.test(options.appId)) fail("configuration_required", "A valid Privy app ID is required.", 503);
@@ -285,6 +299,7 @@ export class PrivyPurchaseBridge {
       ...(options.apiBaseUrl ? { apiBaseUrl: options.apiBaseUrl } : {}),
       ...(options.fetchImplementation ? { fetchImplementation: options.fetchImplementation } : {})
     });
+    this.exportWalletApi = options.exportWallet ?? (options.appSecret ? createPrivyWalletExportApi(options) : undefined);
   }
 
   async authenticate(authorization: string | undefined): Promise<VerifiedPrivyAccessToken> {
@@ -330,6 +345,30 @@ export class PrivyPurchaseBridge {
     } finally {
       if (this.inflight.get(normalized.idempotencyKey)?.promise === promise) this.inflight.delete(normalized.idempotencyKey);
     }
+  }
+
+  async exportWallet(input: {
+    authorization: string | undefined;
+    walletId: string;
+    network: string;
+    walletAddress: string;
+    confirmed: boolean;
+    recipientPublicKey: string;
+  }): Promise<EncryptedWalletExport> {
+    if (input.confirmed !== true) fail("invalid_request", "Explicit wallet export confirmation is required.");
+    if (!this.exportWalletApi) fail("configuration_required", "Privy wallet export is not configured.", 503);
+    if (input.recipientPublicKey.length > 512) fail("invalid_request", "The HPKE recipient key is invalid.");
+    const recipient = Buffer.from(input.recipientPublicKey, "base64");
+    try {
+      const key = crypto.createPublicKey({ key: recipient, format: "der", type: "spki" });
+      if (recipient.toString("base64") !== input.recipientPublicKey || key.asymmetricKeyType !== "ec" || key.asymmetricKeyDetails?.namedCurve !== "prime256v1") throw new Error("invalid_key");
+    } catch { fail("invalid_request", "recipientPublicKey must be a base64-encoded P-256 SPKI public key."); }
+    const token = extractPrivyBearerToken(input.authorization);
+    const claims = await this.authenticate(input.authorization);
+    const wallets = await this.api.listUserWallets({ userId: claims.userId, chainType: input.network });
+    const wallet = wallets.find((candidate) => candidate.id === input.walletId && candidate.chain_type === input.network && candidate.address === input.walletAddress && (candidate.custody === undefined || candidate.custody === null));
+    if (!wallet) fail("invalid_request", "The wallet is not a current compatible wallet for this Privy user.", 403);
+    return this.exportWalletApi({ walletId: wallet.id, userJwt: token, recipientPublicKey: input.recipientPublicKey });
   }
 
   private async executeWallet(normalized: { requestId: string; network: string; idempotencyKey: string; reuseId?: string; createConfirmed: boolean }, claims: VerifiedPrivyAccessToken): Promise<WalletPreparationResult> {
@@ -420,6 +459,39 @@ class PrivyRestWalletApi implements PrivyWalletApi {
     });
     return data as PrivyWalletRecord;
   }
+}
+
+function createPrivyWalletExportApi(options: PrivyBridgeOptions): PrivyWalletExportApi {
+  const client = new PrivyClient({
+    appId: options.appId,
+    appSecret: options.appSecret as string,
+    ...(options.apiBaseUrl ? { apiUrl: options.apiBaseUrl } : {})
+  });
+  const baseUrl = (options.apiBaseUrl ?? PRIVY_DEFAULT_API_BASE_URL).replace(/\/$/, "");
+  return async ({ walletId, userJwt, recipientPublicKey }) => {
+    const body = { encryption_type: "HPKE" as const, recipient_public_key: recipientPublicKey, export_seed_phrase: false };
+    const requestExpiry = Date.now() + 15 * 60 * 1_000;
+    const url = `${baseUrl}/v1/wallets/${encodeURIComponent(walletId)}/export`;
+    const signatures = await generateAuthorizationSignatures(client, {
+      authorizationContext: { user_jwts: [userJwt] },
+      input: {
+        version: 1,
+        method: "POST",
+        url,
+        body,
+        headers: { "privy-app-id": options.appId, "privy-request-expiry": String(requestExpiry) }
+      }
+    });
+    const result = await client.wallets()._export(walletId, {
+      ...body,
+      "privy-authorization-signature": signatures.join(","),
+      "privy-request-expiry": String(requestExpiry)
+    });
+    if (result.encryption_type !== "HPKE" || typeof result.ciphertext !== "string" || result.ciphertext.length > 32768 || typeof result.encapsulated_key !== "string" || result.encapsulated_key.length > 512) {
+      fail("provider_error", "Privy returned an invalid encrypted wallet export.", 502);
+    }
+    return { ciphertext: result.ciphertext, encapsulated_key: result.encapsulated_key, encryption_type: "HPKE" };
+  };
 }
 
 export const createPrivyPurchaseBridge = (options: PrivyBridgeOptions): PrivyPurchaseBridge => {

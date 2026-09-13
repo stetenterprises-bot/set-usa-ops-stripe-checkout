@@ -177,6 +177,7 @@ describe("customer purchasing orchestrator", () => {
       withinSourceBudget: false,
       destinationTargetMatched: true
     });
+    expect(result.purchase.requestedDestinationAmount).toBe("20.00");
     expect(result.quote.sourceTotalAmount).toBe("25.50");
     expect(result.approval.digest).toMatch(/^[A-Za-z0-9_-]{43}$/);
   });
@@ -275,5 +276,132 @@ describe("customer purchasing orchestrator", () => {
 
     expect(recordDelivery.mock.calls[0]?.[1]).toEqual({ providerStatus: "fulfillment_complete" });
     expect((store.enqueueRecovery as unknown as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith("req_quote", "webhook_requires_reconciliation");
+  });
+
+  it("retains a destination-amount mismatch for reconciliation", async () => {
+    const webhookSecret = ["whsec", "unit", "amount-mismatch"].join("_");
+    const reconciliation = purchaseRecord({ state: "reconciliation_required", onramp_session_id: "cos_test_amount" });
+    const recordDelivery = vi.fn().mockResolvedValue({ duplicate: false, request: reconciliation });
+    const store = {
+      getRequestBySessionId: vi.fn().mockResolvedValue(purchaseRecord({ state: "awaiting_customer", onramp_session_id: "cos_test_amount" })),
+      recordDelivery,
+      resolveRecovery: vi.fn(),
+      enqueueRecovery: vi.fn()
+    } as unknown as PostgresPurchaseStore;
+    const orchestrator = new CustomerPurchasingOrchestrator({
+      store,
+      privy: authenticatedPrivy(),
+      stripe: { rawRequest: vi.fn() } as never,
+      approvalSigningKey: "d".repeat(32),
+      onrampMode: "sandbox"
+    });
+    const payload = JSON.stringify({
+      id: "evt_onramp_amount_mismatch",
+      object: "event",
+      type: "crypto.onramp_session.updated",
+      livemode: false,
+      data: { object: {
+        id: "cos_test_amount",
+        status: "fulfillment_complete",
+        transaction_details: {
+          transaction_id: "0xamount",
+          destination_amount: "19.99",
+          destination_currency: "usdc",
+          destination_network: "base",
+          wallet_address: walletAddress
+        }
+      } }
+    });
+    const signature = Stripe.webhooks.generateTestHeaderString({ payload, secret: webhookSecret });
+
+    await orchestrator.processSignedWebhook(Buffer.from(payload), signature, webhookSecret);
+
+    expect(recordDelivery.mock.calls[0]?.[1]).toEqual({ providerStatus: "fulfillment_complete" });
+    expect(store.enqueueRecovery).toHaveBeenCalledWith("req_quote", "webhook_requires_reconciliation");
+  });
+
+  it("accepts the provider delivered amount when intake was source-budget-only", async () => {
+    const webhookSecret = ["whsec", "unit", "budget-only"].join("_");
+    const sourceBudgetOnly = purchaseRecord({
+      normalized_intake: { ...purchaseRecord().normalized_intake, destination_amount: null },
+      destination_amount: "19.99"
+    });
+    const completed = purchaseRecord({ state: "fulfillment_complete", onramp_session_id: "cos_test_budget", delivered_amount: "19.99", transaction_id: "0xbudget", entitlement_status: "released", normalized_intake: { ...purchaseRecord().normalized_intake, destination_amount: null }, destination_amount: "19.99" });
+    const recordDelivery = vi.fn().mockResolvedValue({ duplicate: false, request: completed });
+    const store = {
+      getRequestBySessionId: vi.fn().mockResolvedValue({ ...sourceBudgetOnly, state: "awaiting_customer", onramp_session_id: "cos_test_budget" }),
+      recordDelivery,
+      resolveRecovery: vi.fn(),
+      enqueueRecovery: vi.fn()
+    } as unknown as PostgresPurchaseStore;
+    const orchestrator = new CustomerPurchasingOrchestrator({
+      store,
+      privy: authenticatedPrivy(),
+      stripe: { rawRequest: vi.fn() } as never,
+      approvalSigningKey: "e".repeat(32),
+      onrampMode: "sandbox"
+    });
+    const payload = JSON.stringify({
+      id: "evt_onramp_budget_only",
+      object: "event",
+      type: "crypto.onramp_session.updated",
+      livemode: false,
+      data: { object: {
+        id: "cos_test_budget",
+        status: "fulfillment_complete",
+        transaction_details: {
+          transaction_id: "0xbudget",
+          destination_amount: "19.99",
+          destination_currency: "usdc",
+          destination_network: "base",
+          wallet_address: walletAddress
+        }
+      } }
+    });
+    const signature = Stripe.webhooks.generateTestHeaderString({ payload, secret: webhookSecret });
+
+    const result = await orchestrator.processSignedWebhook(Buffer.from(payload), signature, webhookSecret);
+
+    expect(recordDelivery.mock.calls[0]?.[1]).toMatchObject({ deliveredAmount: "19.99", transactionId: "0xbudget" });
+    expect(result.purchase.requestedDestinationAmount).toBeNull();
+  });
+
+  it("defers recovery when provider fulfillment misses the requested destination amount", async () => {
+    const record = purchaseRecord({ state: "reconciliation_required", onramp_session_id: "cos_recovery_amount" });
+    const rescheduleRecovery = vi.fn();
+    const recordReconciliation = vi.fn();
+    const store = {
+      sweepExpiredQuotes: vi.fn().mockResolvedValue(0),
+      listDueRecovery: vi.fn().mockResolvedValue([{ request_id: record.request_id, attempts: 0 }]),
+      getRequest: vi.fn().mockResolvedValue(record),
+      rescheduleRecovery,
+      recordReconciliation,
+      resolveRecovery: vi.fn()
+    } as unknown as PostgresPurchaseStore;
+    const rawRequest = vi.fn().mockResolvedValue({ data: {
+      id: "cos_recovery_amount",
+      status: "fulfillment_complete",
+      livemode: false,
+      transaction_details: {
+        transaction_id: "0xrecovery-amount",
+        destination_amount: "19.99",
+        destination_currency: "usdc",
+        destination_network: "base",
+        wallet_address: walletAddress
+      }
+    } });
+    const orchestrator = new CustomerPurchasingOrchestrator({
+      store,
+      privy: authenticatedPrivy(),
+      stripe: { rawRequest } as never,
+      approvalSigningKey: "f".repeat(32),
+      onrampMode: "sandbox"
+    });
+
+    const result = await orchestrator.runRecovery();
+
+    expect(result).toMatchObject({ examined: 1, resolved: 0, deferred: 1 });
+    expect(recordReconciliation).not.toHaveBeenCalled();
+    expect(rescheduleRecovery).toHaveBeenCalledWith("req_quote", expect.stringContaining("requested destination amount"), 300);
   });
 });

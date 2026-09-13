@@ -196,6 +196,7 @@ export const RETAINER_PRICE_AMOUNT = 19_500 as const;
 export const RETAINER_CURRENCY = "usd" as const;
 export const RETAINER_EVENT_TYPES = new Set([
   "checkout.session.completed",
+  "checkout.session.async_payment_succeeded",
   "invoice.paid",
   "invoice.payment_failed",
   "customer.subscription.updated",
@@ -258,6 +259,7 @@ function retainerEventDetails(event: Stripe.Event): {
   currency: string | null;
   interval: string | null;
   subscriptionMode: string | null;
+  paymentStatus: string | null;
 } {
   const object = event.data.object as unknown as RetainerObject;
   const parentSubscription = subscriptionDetails(object);
@@ -277,7 +279,7 @@ function retainerEventDetails(event: Stripe.Event): {
     ? (typeof object.amount_paid === "number" ? object.amount_paid : typeof object.amount_due === "number" ? object.amount_due : price.amount)
     : event.type === "invoice.payment_failed"
       ? (typeof object.amount_due === "number" ? object.amount_due : price.amount)
-      : event.type === "checkout.session.completed"
+      : event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded"
         ? (typeof object.amount_total === "number" ? object.amount_total : price.amount)
         : price.amount;
   const currency = stringValue(object.currency) ?? price.currency;
@@ -290,7 +292,8 @@ function retainerEventDetails(event: Stripe.Event): {
     amount,
     currency,
     interval,
-    subscriptionMode: stringValue(object.mode)
+    subscriptionMode: stringValue(object.mode),
+    paymentStatus: stringValue(object.payment_status)
   };
 }
 
@@ -298,7 +301,8 @@ function isValidRetainerEvent(event: Stripe.Event, details: ReturnType<typeof re
   if (details.metadata.seller !== "SET Business Consults" || details.metadata.offer !== RETAINER_OFFER_ID) return false;
   if (details.amount !== RETAINER_PRICE_AMOUNT || details.currency !== RETAINER_CURRENCY) return false;
   if (details.interval !== null && details.interval !== "month") return false;
-  if (event.type === "checkout.session.completed" && details.subscriptionMode !== "subscription") return false;
+  if ((event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded") && details.subscriptionMode !== "subscription") return false;
+  if (event.type === "checkout.session.async_payment_succeeded" && details.paymentStatus !== "paid") return false;
   return Boolean(details.subscriptionId);
 }
 
@@ -307,6 +311,7 @@ function retainerStatus(event: Stripe.Event, object: RetainerObject): string {
   if (event.type === "invoice.paid") return "paid";
   if (event.type === "customer.subscription.deleted") return "canceled";
   if (event.type === "customer.subscription.updated") return stringValue(object.status) ?? "active";
+  if (event.type === "checkout.session.async_payment_succeeded") return "paid";
   return "checkout_completed";
 }
 
@@ -379,8 +384,8 @@ export class PostgresRetainerStore implements RetainerStore {
           details.customerId,
           details.customerEmail,
           retainerStatus(event, object),
-          event.type === "invoice.paid" ? "paid" : event.type === "invoice.payment_failed" ? "failed" : "unpaid",
-          event.type === "invoice.paid" ? invoicePeriodEnd : null,
+          event.type === "invoice.paid" || event.type === "checkout.session.async_payment_succeeded" ? "paid" : event.type === "invoice.payment_failed" ? "failed" : "unpaid",
+          event.type === "invoice.paid" || event.type === "checkout.session.async_payment_succeeded" ? invoicePeriodEnd : null,
           RETAINER_PRICE_AMOUNT,
           RETAINER_CURRENCY,
           RETAINER_SCOPE,
@@ -388,7 +393,7 @@ export class PostgresRetainerStore implements RetainerStore {
           event.id,
           event.created,
           event.type.startsWith("invoice.") ? event.created : 0,
-          event.type === "checkout.session.completed" || event.type.startsWith("customer.subscription.") ? event.created : 0
+          event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded" || event.type.startsWith("customer.subscription.") ? event.created : 0
         ]
       );
       await database.query("COMMIT");

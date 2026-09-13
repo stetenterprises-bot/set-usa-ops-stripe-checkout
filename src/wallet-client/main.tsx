@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { PrivyProvider, usePrivy } from "@privy-io/react-auth";
+import { createWalletExportRecipient } from "./hpke";
 import "./styles.css";
 
 type WalletConfig = { privyAppId: string; stripePublishableKey: string };
@@ -21,12 +22,13 @@ type QuoteReview = {
   approval: { digest: string; nonce: string; expiresAt: string; walletAddress: string };
 };
 type SessionResult = { purchase: Purchase; clientSecret: string; sessionId: string };
+type WalletExportResponse = { ciphertext: string; encapsulated_key: string; encryption_type: string };
 
 declare global {
   interface Window {
     StripeOnramp?: (publishableKey: string) => {
       createSession: (options: { clientSecret: string }) => {
-        addEventListener: (event: string, listener: (event: { payload?: { [key: string]: unknown } }) => void) => void;
+        addEventListener: (event: string, listener: (event: { payload?: { session?: { status?: unknown }; [key: string]: unknown } }) => void) => void;
         mount: (selector: string) => void;
       };
     };
@@ -40,6 +42,12 @@ const assetOptions = [
   { value: "usdc|ethereum|ethereum", label: "USDC on Ethereum" },
   { value: "sol|solana|solana", label: "SOL on Solana" }
 ] as const;
+
+const walletConfirmedStates = new Set([
+  "wallet_confirmed", "awaiting_quote", "quote_ready", "awaiting_approval", "approved", "session_creating",
+  "awaiting_customer", "payment_processing", "payment_succeeded", "fulfillment_processing", "fulfillment_complete",
+  "failed", "rejected", "canceled", "expired", "reconciliation_required"
+]);
 
 function idempotencyKey(prefix: string, requestId: string): string {
   return `${prefix}-${requestId}-${crypto.randomUUID()}`;
@@ -75,7 +83,11 @@ function WalletFlow({ config }: { config: WalletConfig }) {
   const [statusMessage, setStatusMessage] = useState("Authenticate to begin.");
   const [overageConfirmed, setOverageConfirmed] = useState(false);
   const [stripeState, setStripeState] = useState("Stripe Onramp has not started.");
+  const [stripeMountFailed, setStripeMountFailed] = useState(false);
   const [dashboardSync, setDashboardSync] = useState("");
+  const [previousRequestId, setPreviousRequestId] = useState<string | null>(null);
+  const [exportBusy, setExportBusy] = useState(false);
+  const [exportStatus, setExportStatus] = useState("");
   const stripeMounted = useRef(false);
   const operationKeys = useRef(new Map<string, string>());
   const createRequestKey = useRef<string | null>(null);
@@ -104,10 +116,16 @@ function WalletFlow({ config }: { config: WalletConfig }) {
     return readJson(await fetch(path, { ...init, headers: { ...headers, ...(init.headers ?? {}) } }));
   }, [authHeaders]);
 
-  const showError = (cause: unknown) => {
+  const showError = useCallback((cause: unknown) => {
     setError(cause instanceof Error ? cause.message : "The wallet flow could not continue.");
     setBusy(null);
-  };
+  }, []);
+
+  const handleLogout = useCallback(() => {
+    createRequestKey.current = null;
+    try { sessionStorage.removeItem("set.wallet.createRequestKey"); } catch { /* Storage is optional. */ }
+    logout();
+  }, [logout]);
 
   const prepareWallet = async (requestId: string, options: { createWalletConfirmed?: boolean; reuseConfirmedWalletId?: string } = {}) => {
     const body = { walletChainType, ...(options.createWalletConfirmed ? { createWalletConfirmed: true } : {}), ...(options.reuseConfirmedWalletId ? { reuseConfirmedWalletId: options.reuseConfirmedWalletId } : {}) };
@@ -131,8 +149,13 @@ function WalletFlow({ config }: { config: WalletConfig }) {
     event.preventDefault();
     if (purchase) return;
     if (!destinationAmount && !sourceBudget) { setError("Enter a crypto amount or USD budget."); return; }
-    const requestKey = createRequestKey.current ?? idempotencyKey("create-request", "new");
+    let requestKey = createRequestKey.current;
+    if (!requestKey) {
+      try { requestKey = sessionStorage.getItem("set.wallet.createRequestKey"); } catch { /* Storage is optional. */ }
+    }
+    requestKey ??= idempotencyKey("create-request", "new");
     createRequestKey.current = requestKey;
+    try { sessionStorage.setItem("set.wallet.createRequestKey", requestKey); } catch { /* Storage is optional. */ }
     setBusy("Creating request"); setError(null); setReview(null); setSession(null); stripeMounted.current = false;
     try {
       const exactAnswers = { cryptocurrency: asset, cryptocurrency_amount: destinationAmount || "provider quote", payment: sourceBudget ? `USD budget ${sourceBudget}` : "provider quote", post_purchase: postPurchase };
@@ -181,18 +204,109 @@ function WalletFlow({ config }: { config: WalletConfig }) {
     } catch (cause) { showError(cause); }
   };
 
-  useEffect(() => {
+  const mountStripe = useCallback(() => {
     if (!session || stripeMounted.current) return;
-    if (!window.StripeOnramp) { setError("The Stripe Onramp client did not load. Refresh and try again."); return; }
-    stripeMounted.current = true;
-    const client = window.StripeOnramp(config.stripePublishableKey);
-    const embedded = client.createSession({ clientSecret: session.clientSecret });
-    embedded.addEventListener("onramp_session_updated", (event) => {
-      const next = event.payload?.status;
-      if (typeof next === "string") setStripeState(`Stripe Onramp status: ${next}`);
-    });
-    embedded.mount("#stripe-onramp");
+    setStripeMountFailed(false);
+    try {
+      if (!window.StripeOnramp) throw new Error("The Stripe Onramp client did not load. Refresh and try again.");
+      const client = window.StripeOnramp(config.stripePublishableKey);
+      const embedded = client.createSession({ clientSecret: session.clientSecret });
+      embedded.addEventListener("onramp_session_updated", (event) => {
+        const next = event.payload?.session?.status;
+        if (typeof next === "string") setStripeState(`Stripe Onramp status: ${next}`);
+      });
+      embedded.mount("#stripe-onramp");
+      stripeMounted.current = true;
+    } catch (cause) {
+      stripeMounted.current = false;
+      setStripeMountFailed(true);
+      setError(cause instanceof Error ? cause.message : "The Stripe Onramp could not be mounted.");
+    }
   }, [config.stripePublishableKey, session]);
+
+  useEffect(() => {
+    mountStripe();
+  }, [mountStripe]);
+
+  const resumeExistingSession = useCallback(async (requestId: string) => {
+    setBusy("Restoring Stripe Onramp"); setError(null);
+    try {
+      const resumed = await request(`/purchasing/requests/${encodeURIComponent(requestId)}/resume`);
+      setSession(resumed as unknown as SessionResult);
+      setBusy(null);
+      setStatusMessage("Your existing Stripe Onramp session was restored. Continue payment in the embedded panel.");
+    } catch (cause) {
+      showError(cause);
+      throw cause;
+    }
+  }, [request, showError]);
+
+  const startAnotherPurchase = useCallback(() => {
+    if (!purchase || !["fulfillment_complete", "rejected", "canceled", "failed"].includes(purchase.state)) return;
+    const completedRequestId = purchase.requestId;
+    try {
+      sessionStorage.setItem("set.wallet.previousRequestId", completedRequestId);
+      sessionStorage.removeItem("set.wallet.requestId");
+      sessionStorage.removeItem("set.wallet.createRequestKey");
+    } catch { /* Storage is optional. */ }
+    setPreviousRequestId(completedRequestId);
+    createRequestKey.current = null;
+    setPurchase(null);
+    setWalletResult(null);
+    setReview(null);
+    setSession(null);
+    setDestinationAmount("");
+    setSourceBudget("");
+    setGeography("");
+    setAssetChoice(assetOptions[0].value);
+    setPostPurchase("none");
+    setBusy(null);
+    setError(null);
+    setStripeState("Stripe Onramp has not started.");
+    setStripeMountFailed(false);
+    setExportStatus("");
+    stripeMounted.current = false;
+    setStatusMessage(`Previous request ${completedRequestId} remains available for review.`);
+  }, [purchase]);
+
+  const exportWalletRecovery = useCallback(async () => {
+    if (!purchase?.wallet || !walletConfirmedStates.has(purchase.state)) return;
+    if (!window.confirm("Download this wallet's recovery key now? Anyone with the file can control the wallet. Store it offline and never share it.")) return;
+    setExportBusy(true);
+    setExportStatus("Generating a one-time encrypted recovery request…");
+    let recoveryKey: string | null = null;
+    let recipient: Awaited<ReturnType<typeof createWalletExportRecipient>> | null = null;
+    try {
+      recipient = await createWalletExportRecipient();
+      const result = await request(`/purchasing/requests/${encodeURIComponent(purchase.requestId)}/wallet/export`, {
+        method: "POST",
+        body: JSON.stringify({ confirmed: true, recipientPublicKey: recipient.recipientPublicKey })
+      }) as unknown as WalletExportResponse;
+      if (result.encryption_type !== "HPKE" || typeof result.ciphertext !== "string" || typeof result.encapsulated_key !== "string") {
+        throw new Error("The wallet export response was not a valid HPKE payload.");
+      }
+      recoveryKey = await recipient.decrypt(result.encapsulated_key, result.ciphertext);
+      if (!recoveryKey.trim() || recoveryKey.length > 4096) throw new Error("The wallet export was invalid or empty.");
+      const safeAddress = purchase.wallet.address.replace(/[^A-Za-z0-9_-]/g, "").slice(-16) || "wallet";
+      const blob = new Blob([recoveryKey], { type: "text/plain;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `set-wallet-recovery-${safeAddress}.txt`;
+      anchor.rel = "noopener";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setExportStatus("Recovery download started. Confirm the file was saved, store it offline, and remove temporary copies from this device.");
+    } catch (cause) {
+      setExportStatus(cause instanceof Error ? cause.message : "The wallet recovery export could not be completed.");
+    } finally {
+      recoveryKey = null;
+      recipient = null;
+      setExportBusy(false);
+    }
+  }, [purchase, request]);
 
   useEffect(() => {
     if (!purchase?.requestId || !authenticated) return;
@@ -217,6 +331,7 @@ function WalletFlow({ config }: { config: WalletConfig }) {
 
   useEffect(() => {
     if (!ready || !authenticated || purchase) return;
+    try { setPreviousRequestId(sessionStorage.getItem("set.wallet.previousRequestId")); } catch { /* Storage is optional. */ }
     let requestId: string | null = null;
     try { requestId = window.sessionStorage.getItem("set.wallet.requestId"); } catch { /* Storage may be disabled. */ }
     if (!requestId) return;
@@ -233,8 +348,7 @@ function WalletFlow({ config }: { config: WalletConfig }) {
           if (saved) setReview(JSON.parse(saved) as QuoteReview);
         } catch { /* A fresh quote can be requested before a session exists. */ }
         if (status.purchase.state === "awaiting_customer" && status.purchase.sessionId) {
-          const resumed = await request(`/purchasing/requests/${encodeURIComponent(requestId as string)}/resume`);
-          if (!stopped) { setSession(resumed as unknown as SessionResult); setStatusMessage("Your existing Stripe Onramp session was restored. Continue payment in the embedded panel."); }
+          if (!stopped) await resumeExistingSession(requestId as string);
         } else if (!stopped) {
           setStatusMessage("Your existing purchase request was restored. Continue from the current review step.");
         }
@@ -243,7 +357,7 @@ function WalletFlow({ config }: { config: WalletConfig }) {
       }
     })();
     return () => { stopped = true; };
-  }, [authenticated, ready, request]);
+  }, [authenticated, ready, request, resumeExistingSession]);
 
   useEffect(() => {
     if (ready && !authenticated) {
@@ -259,21 +373,25 @@ function WalletFlow({ config }: { config: WalletConfig }) {
   if (!authenticated) return <main className="card"><h1>Customer wallet</h1><p>Sign in with Privy to review a user-owned wallet and a current Stripe Onramp quote.</p><button onClick={login}>Sign in with Privy</button></main>;
 
   return <main className="shell">
-    <header><div><p className="eyebrow">SET customer wallet</p><h1>Buy into your own wallet</h1><p className="lede">Privy authenticates you and Stripe handles payment and verification. The exact wallet, quote, approval, and fulfillment status stay visible at every step.</p></div><button className="secondary" onClick={logout}>Sign out</button></header>
+    <header><div><p className="eyebrow">SET customer wallet</p><h1>Buy into your own wallet</h1><p className="lede">Privy authenticates you and Stripe handles payment and verification. The exact wallet, quote, approval, and fulfillment status stay visible at every step.</p></div><button className="secondary" onClick={handleLogout}>Sign out</button></header>
     <section className="card"><h2>1. Define the purchase</h2><form onSubmit={startRequest}><fieldset disabled={Boolean(purchase || busy)}>
       <label>Asset and network<select value={assetChoice} onChange={(event) => setAssetChoice(event.target.value)}>{assetOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
       <div className="grid"><label>Crypto amount (optional)<input inputMode="decimal" value={destinationAmount} onChange={(event) => setDestinationAmount(event.target.value)} placeholder="For example 0.01" /></label><label>USD budget (optional)<input inputMode="decimal" value={sourceBudget} onChange={(event) => setSourceBudget(event.target.value)} placeholder="For example 50" /></label></div>
       <div className="grid"><label>Customer geography<input value={geography} onChange={(event) => setGeography(event.target.value)} required placeholder="For example US-IL" /></label><label>After purchase<select value={postPurchase} onChange={(event) => setPostPurchase(event.target.value)}><option value="none">Hold in my wallet</option><option value="dapp">Use a separately approved dApp handoff</option></select></label></div>
       <p className="hint">Provide a crypto amount or a USD budget. No payment or wallet creation starts from this form.</p><button disabled={Boolean(busy || purchase)} type="submit">{busy ?? "Create purchase request"}</button>
-    </fieldset></form></section>
-    {purchase && ["intake", "awaiting_authentication", "authenticated", "awaiting_wallet"].includes(purchase.state) && !walletResult && <button disabled={Boolean(busy)} onClick={() => { setBusy("Preparing wallet"); void prepareWallet(purchase.requestId).then(() => setBusy(null)).catch(showError); }}>Continue wallet selection</button>}
-    {purchase && !purchase.sessionId && ["awaiting_quote", "quote_ready", "awaiting_approval", "expired"].includes(purchase.state) && <button disabled={Boolean(busy)} onClick={() => void getQuote(purchase.requestId)}>Get a fresh quote</button>}
-    {purchase?.state === "fulfillment_complete" && <section className="card"><h2>Delivery verified</h2><p>{purchase.deliveredAmount} {purchase.asset.toUpperCase()} to {purchase.wallet?.address}</p><p>Transaction <code>{purchase.transactionId}</code></p></section>}
-    {dashboardSync === "synced" && <p className="status">Purchase activity is synced to your approved client workspace.</p>}
-    {dashboardSync === "retry_pending" && <p className="status">Your purchase is retained. Client dashboard synchronization is retrying.</p>}
-    {purchase && <section className="card"><h2>2. Wallet review</h2><p className="status">{statusMessage}</p><p>Request <code>{purchase.requestId}</code> · state <strong>{purchase.state}</strong></p>{walletResult?.status === "awaiting_wallet_creation_confirmation" && <button disabled={Boolean(busy)} onClick={() => { setBusy("Creating wallet"); void prepareWallet(purchase.requestId, { createWalletConfirmed: true }).then(() => setBusy(null)).catch(showError); }}>Confirm user-owned wallet creation</button>}{walletCandidates.length > 0 && <div className="wallet-list">{walletCandidates.map((wallet) => <div className="wallet" key={wallet.id}><code>{wallet.address}</code><span>{wallet.network}</span><button disabled={Boolean(busy) || !["awaiting_wallet", "awaiting_wallet_confirmation"].includes(purchase.state)} onClick={() => void confirmWallet(wallet.id)}>{busy ?? "Confirm this wallet"}</button></div>)}</div>}</section>}
+    </fieldset></form>{!purchase && previousRequestId && <p className="hint">Previous request <code>{previousRequestId}</code> remains available for review.</p>}</section>
+     {purchase && ["intake", "awaiting_authentication", "authenticated", "awaiting_wallet"].includes(purchase.state) && !walletResult && <button disabled={Boolean(busy)} onClick={() => { setBusy("Preparing wallet"); void prepareWallet(purchase.requestId).then(() => setBusy(null)).catch(showError); }}>Continue wallet selection</button>}
+     {purchase && !purchase.sessionId && ["awaiting_quote", "quote_ready", "awaiting_approval", "expired"].includes(purchase.state) && <button disabled={Boolean(busy)} onClick={() => void getQuote(purchase.requestId)}>Get a fresh quote</button>}
+     {purchase?.state === "awaiting_customer" && purchase.sessionId && !session && <button disabled={Boolean(busy)} onClick={() => void resumeExistingSession(purchase.requestId).catch(() => undefined)}>Retry Stripe Onramp resume</button>}
+     {purchase?.state === "fulfillment_complete" && <section className="card"><h2>Delivery verified</h2><p>{purchase.deliveredAmount} {purchase.asset.toUpperCase()} to {purchase.wallet?.address}</p><p>Transaction <code>{purchase.transactionId}</code></p></section>}
+     {purchase && ["fulfillment_complete", "rejected", "canceled", "failed"].includes(purchase.state) && <button onClick={() => startAnotherPurchase()}>Start another purchase</button>}
+     {dashboardSync === "synced" && <p className="status">Purchase activity is synced to your approved client workspace.</p>}
+     {dashboardSync === "retry_pending" && <p className="status">Your purchase is retained. Client dashboard synchronization is retrying.</p>}
+     {dashboardSync === "not_linked" && <p className="status">Delivery tracking remains here. Client workspace access requires Site sign-in and approved matching membership.</p>}
+     {purchase && <section className="card"><h2>2. Wallet review</h2><p className="status">{statusMessage}</p><p>Request <code>{purchase.requestId}</code> · state <strong>{purchase.state}</strong></p>{walletResult?.status === "awaiting_wallet_creation_confirmation" && <button disabled={Boolean(busy)} onClick={() => { setBusy("Creating wallet"); void prepareWallet(purchase.requestId, { createWalletConfirmed: true }).then(() => setBusy(null)).catch(showError); }}>Confirm user-owned wallet creation</button>}{walletCandidates.length > 0 && <div className="wallet-list">{walletCandidates.map((wallet) => <div className="wallet" key={wallet.id}><code>{wallet.address}</code><span>{wallet.network}</span><button disabled={Boolean(busy) || !["awaiting_wallet", "awaiting_wallet_confirmation"].includes(purchase.state)} onClick={() => void confirmWallet(wallet.id)}>{busy ?? "Confirm this wallet"}</button></div>)}</div>}</section>}
+     {purchase?.wallet && walletConfirmedStates.has(purchase.state) && <section className="card"><h2>Wallet access</h2><p>This is the selected, confirmed user-owned wallet.</p><p><code>{purchase.wallet.address}</code> · {purchase.wallet.chainType}</p><p className="hint">A recovery export is generated in your browser and downloaded once. SET does not receive the plaintext key.</p><button disabled={Boolean(exportBusy || busy)} onClick={() => void exportWalletRecovery()}>{exportBusy ? "Preparing recovery file…" : "Download wallet recovery key"}</button>{exportStatus && <p className="status">{exportStatus}</p>}</section>}
     {review && !session && purchase && ["awaiting_approval", "approved", "session_creating", "reconciliation_required"].includes(purchase.state) && <section className="card"><h2>3. Quote and approval</h2><div className="quote"><p>Destination: <strong>{formatValue(review.constraintReview.estimatedDestinationAmount ?? review.quote.quote?.destinationAmount)} {purchase.asset.toUpperCase()}</strong></p><p>Quoted source total: <strong>{formatValue(review.constraintReview.quotedSourceTotalAmount ?? review.quote.sourceTotalAmount)} USD</strong></p><p>Wallet: <code>{review.approval.walletAddress}</code></p><p>Quote expires: <strong>{review.approval.expiresAt}</strong></p></div>{requiresOverage && <label className="check"><input type="checkbox" checked={overageConfirmed} onChange={(event) => setOverageConfirmed(event.target.checked)} /> I approve the quoted total above my original USD budget.</label>}<button disabled={Boolean(busy) || Boolean(requiresOverage && !overageConfirmed)} onClick={() => void approve()}>{busy ?? "Approve exact quote and open Stripe"}</button></section>}
-    {session && <section className="card"><h2>4. Complete with Stripe</h2><p className="status">{stripeState}</p><p>{statusMessage}</p><div id="stripe-onramp" /></section>}
+     {session && <section className="card"><h2>4. Complete with Stripe</h2><p className="status">{stripeState}</p><p>{statusMessage}</p><div id="stripe-onramp" />{stripeMountFailed && <button disabled={Boolean(busy)} onClick={() => mountStripe()}>Retry Stripe Onramp mount</button>}</section>}
     {error && <div className="error" role="alert">{error}</div>}
   </main>;
 }

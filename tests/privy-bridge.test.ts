@@ -68,6 +68,25 @@ function fakeApi(wallets: readonly PrivyWalletRecord[] = []): PrivyWalletApi & {
 }
 
 describe("Privy customer-owned purchasing bridge", () => {
+  it("exports only encrypted material after confirmation and fresh wallet ownership verification", async () => {
+    let exports = 0;
+    const api = fakeApi([wallet]);
+    const bridge = new PrivyPurchaseBridge({ appId: PRIVY_TEST_APP_ID, verificationKey: publicJwk, api, exportWallet: async () => {
+      exports += 1;
+      return { encryption_type: "HPKE", ciphertext: "encrypted", encapsulated_key: "encapsulated" };
+    } });
+    const input = { authorization: `Bearer ${accessToken()}`, walletId: wallet.id, network: wallet.chain_type, walletAddress: wallet.address, confirmed: true, recipientPublicKey: keyPair.publicKey.export({ format: "der", type: "spki" }).toString("base64") };
+    await expect(bridge.exportWallet({ ...input, confirmed: false })).rejects.toThrow(/confirmation/);
+    await expect(bridge.exportWallet({ ...input, recipientPublicKey: "AAAA" })).rejects.toThrow(/SPKI/);
+    await expect(bridge.exportWallet({ ...input, walletId: "another_wallet" })).rejects.toThrow(/not a current/);
+    expect(exports).toBe(0);
+    expect(await bridge.exportWallet(input)).toEqual({ encryption_type: "HPKE", ciphertext: "encrypted", encapsulated_key: "encapsulated" });
+    expect(exports).toBe(1);
+    api.listUserWallets = async () => [];
+    await expect(bridge.exportWallet(input)).rejects.toThrow(/not a current/);
+    expect(exports).toBe(1);
+  });
+
   it("requires a valid runtime app and a configured verification path", () => {
     expect(() => new PrivyPurchaseBridge({ appId: "bad", appSecret: "secret", verificationKey: publicJwk })).toThrow(/valid Privy app/);
     expect(() => new PrivyPurchaseBridge({ appId: PRIVY_TEST_APP_ID, appSecret: "secret" })).toThrow(/verification/);
