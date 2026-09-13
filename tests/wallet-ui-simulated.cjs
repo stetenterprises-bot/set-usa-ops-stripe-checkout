@@ -15,6 +15,8 @@ function serverState() {
 }
 
 async function main() {
+  const { CipherSuite, DhkemP256HkdfSha256, HkdfSha256 } = await import('@hpke/core');
+  const { Chacha20Poly1305 } = await import('@hpke/chacha20poly1305');
   const state = serverState();
   const server = await createServer({ root, base: "/", resolve: { alias: { "@privy-io/react-auth": shim } }, server: { host: "127.0.0.1", port: 0 } });
   await server.listen();
@@ -29,6 +31,15 @@ async function main() {
   await page.route("**/purchasing/**", async route => {
     const url = new URL(route.request().url());
     const method = route.request().method();
+    if (method === 'POST' && url.pathname.endsWith('/wallet/export')) {
+      const input = route.request().postDataJSON();
+      if (input.confirmed !== true) throw new Error('Missing customer export confirmation');
+      const publicKey = await crypto.subtle.importKey('spki', Buffer.from(input.recipientPublicKey, 'base64'), { name: 'ECDH', namedCurve: 'P-256' }, true, []);
+      const suite = new CipherSuite({ kem: new DhkemP256HkdfSha256(), kdf: new HkdfSha256(), aead: new Chacha20Poly1305() });
+      const sender = await suite.createSenderContext({ recipientPublicKey: publicKey });
+      const ciphertext = await sender.seal(new TextEncoder().encode('synthetic-browser-recovery-only'));
+      return route.fulfill({ json: { encryption_type: 'HPKE', ciphertext: Buffer.from(ciphertext).toString('base64'), encapsulated_key: Buffer.from(sender.enc).toString('base64') } });
+    }
     if (method === "POST" && url.pathname === "/purchasing/requests") { state.purchase = basePurchase("intake"); return route.fulfill({ json: { purchase: state.purchase } }); }
     if (method === "POST" && url.pathname.endsWith("/wallet")) { state.purchase = basePurchase("awaiting_wallet_confirmation"); return route.fulfill({ json: { purchase: state.purchase, result: { status: "awaiting_wallet_confirmation", candidates: [wallet] } } }); }
     if (method === "POST" && url.pathname.endsWith("/wallet/confirm")) { state.purchase = basePurchase("quote_ready"); return route.fulfill({ json: { purchase: state.purchase } }); }
@@ -68,9 +79,17 @@ async function main() {
   await page.reload();
   await page.waitForTimeout(1000);
   if (!(await page.getByText(/retrying/).count())) throw new Error("nested dashboardSync retry_pending status was not rendered");
+  page.once('dialog', dialog => dialog.accept());
+  const downloading = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Download wallet recovery key', exact: true }).click();
+  const download = await downloading;
+  const stream = await download.createReadStream();
+  const chunks = []; for await (const chunk of stream) chunks.push(chunk);
+  if (Buffer.concat(chunks).toString() !== 'synthetic-browser-recovery-only') throw new Error('Browser HPKE recovery download failed');
+  if ((await page.locator('body').innerText()).includes('synthetic-browser-recovery-only')) throw new Error('Plaintext key appeared in page');
   await page.getByRole('button', { name: 'Start another purchase', exact: true }).click();
   if (!(await page.getByRole('button', { name: 'Create purchase request' }).isEnabled())) throw new Error('New purchase intake remained locked');
-  console.log(JSON.stringify({ simulated: true, passed: ["intake-wallet-quote-approve", "budget-consent", "stripe-mount", "nested-stripe-event", "no-browser-event-fulfillment-claim", "fulfillment-complete", "resume-failure", "resume-button-retry", "nested-dashboardSync-retry_pending", "explicit-next-purchase"] }));
+  console.log(JSON.stringify({ simulated: true, passed: ["intake-wallet-quote-approve", "budget-consent", "stripe-mount", "nested-stripe-event", "no-browser-event-fulfillment-claim", "fulfillment-complete", "resume-failure", "resume-button-retry", "nested-dashboardSync-retry_pending", "browser-only-encrypted-recovery-download", "explicit-next-purchase"] }));
   } finally {
   await browser.close();
   await server.close();
