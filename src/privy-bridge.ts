@@ -416,6 +416,13 @@ class PrivyRestWalletApi implements PrivyWalletApi {
     this.appId = options.appId;
   }
 
+  private providerFailure(message: string, response: Response): string {
+    const requestId = ["privy-request-id", "x-request-id", "request-id"]
+      .map((header) => response.headers.get(header)?.trim() ?? "")
+      .find((value) => /^[A-Za-z0-9._:-]{1,128}$/.test(value));
+    return `${message} (HTTP ${response.status}${requestId ? `; request ID ${requestId}` : ""}).`;
+  }
+
   private async request(path: string, init: RequestInit = {}): Promise<Record<string, unknown>> {
     let response: Response;
     try {
@@ -426,13 +433,13 @@ class PrivyRestWalletApi implements PrivyWalletApi {
     } catch {
       fail("provider_error", "Privy wallet service could not be reached.", 502);
     }
-    if (!response.ok) fail("provider_error", "Privy wallet service rejected the request.", 502);
+    if (!response.ok) fail("provider_error", this.providerFailure("Privy wallet service rejected the request", response), 502);
     try {
       const data: unknown = await response.json();
       if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("invalid response");
       return data as Record<string, unknown>;
     } catch {
-      fail("provider_error", "Privy returned an invalid wallet response.", 502);
+      fail("provider_error", this.providerFailure("Privy returned an invalid wallet response", response), 502);
     }
   }
 

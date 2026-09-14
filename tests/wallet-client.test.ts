@@ -28,7 +28,10 @@ describe("customer wallet delivery", () => {
       const result = await request(app).get(asset);
       expect(result.status, asset).toBe(200);
     }
-    expect((await request(app).get("/wallet-assets/wallet.js")).headers["cache-control"]).toBe("no-cache");
+    const script = await request(app).get("/wallet-assets/wallet.js");
+    expect(script.headers["cache-control"]).toBe("no-cache");
+    expect(script.text).toContain("BTC on Bitcoin (native)");
+    expect(script.text).toContain("USD budget (optional, USD)");
     expect((await request(app).get("/wallet/config")).status).toBe(503);
   });
 });

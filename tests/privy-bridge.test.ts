@@ -163,6 +163,31 @@ describe("Privy customer-owned purchasing bridge", () => {
     expect(JSON.parse(String(calls[1]?.init.body))).toMatchObject({ chain_type: "ethereum", owner: { user_id: "did:privy:user_1" } });
   });
 
+  it("surfaces the provider HTTP status and safe request ID on wallet API failures", async () => {
+    const fetchImplementation: typeof fetch = async () => new Response(JSON.stringify({ error: "provider detail must stay private" }), {
+      status: 422,
+      headers: { "privy-request-id": "req_privy_wallet_123" }
+    });
+    const bridge = new PrivyPurchaseBridge({
+      appId: PRIVY_TEST_APP_ID,
+      appSecret: "app-secret-not-logged",
+      verificationKey: publicJwk,
+      apiBaseUrl: "https://privy.test",
+      fetchImplementation
+    });
+
+    await expect(bridge.prepareWallet({
+      authorization: `Bearer ${accessToken()}`,
+      requestId: "req_provider_error",
+      network: "bitcoin-segwit",
+      idempotencyKey: "set-provider-error"
+    })).rejects.toMatchObject({
+      code: "provider_error",
+      status: 502,
+      message: "Privy wallet service rejected the request (HTTP 422; request ID req_privy_wallet_123)."
+    });
+  });
+
   it("rejects idempotency-key reuse for a different authenticated operation", async () => {
     const bridge = new PrivyPurchaseBridge({ appId: PRIVY_TEST_APP_ID, verificationKey: publicJwk, api: fakeApi() });
     await bridge.prepareWallet({ authorization: `Bearer ${accessToken()}`, requestId: "req_5", network: "ethereum", idempotencyKey: "set-wallet-5", createWalletConfirmed: true });

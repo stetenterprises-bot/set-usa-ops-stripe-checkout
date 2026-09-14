@@ -36,7 +36,7 @@ declare global {
 }
 
 const assetOptions = [
-  { value: "btc|bitcoin|bitcoin-segwit", label: "BTC on Bitcoin" },
+  { value: "btc|bitcoin|bitcoin-segwit", label: "BTC on Bitcoin (native)" },
   { value: "eth|ethereum|ethereum", label: "ETH on Ethereum" },
   { value: "usdc|base|ethereum", label: "USDC on Base" },
   { value: "usdc|ethereum|ethereum", label: "USDC on Ethereum" },
@@ -62,7 +62,12 @@ function formatValue(value: unknown): string {
 async function readJson(response: Response): Promise<Record<string, any>> {
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(typeof body?.error === "string" ? body.error : `Request failed (${response.status}).`);
+    const message = typeof body?.error === "string"
+      ? body.error
+      : typeof body?.error?.message === "string"
+        ? body.error.message
+        : `Request failed (${response.status}).`;
+    throw new Error(message);
   }
   return body;
 }
@@ -92,6 +97,7 @@ function WalletFlow({ config }: { config: WalletConfig }) {
   const operationKeys = useRef(new Map<string, string>());
   const createRequestKey = useRef<string | null>(null);
   const [asset, network, walletChainType] = assetChoice.split("|");
+  const destinationUnit = (asset ?? "crypto").toUpperCase();
 
   const operationKey = useCallback((operation: string, requestId: string): string => {
     const key = `${operation}:${requestId}`;
@@ -376,9 +382,9 @@ function WalletFlow({ config }: { config: WalletConfig }) {
     <header><div><p className="eyebrow">SET customer wallet</p><h1>Buy into your own wallet</h1><p className="lede">Privy authenticates you and Stripe handles payment and verification. The exact wallet, quote, approval, and fulfillment status stay visible at every step.</p></div><button className="secondary" onClick={handleLogout}>Sign out</button></header>
     <section className="card"><h2>1. Define the purchase</h2><form onSubmit={startRequest}><fieldset disabled={Boolean(purchase || busy)}>
       <label>Asset and network<select value={assetChoice} onChange={(event) => setAssetChoice(event.target.value)}>{assetOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-      <div className="grid"><label>Crypto amount (optional)<input inputMode="decimal" value={destinationAmount} onChange={(event) => setDestinationAmount(event.target.value)} placeholder="For example 0.01" /></label><label>USD budget (optional)<input inputMode="decimal" value={sourceBudget} onChange={(event) => setSourceBudget(event.target.value)} placeholder="For example 50" /></label></div>
+      <div className="grid"><label>Crypto amount (optional, {destinationUnit})<input inputMode="decimal" value={destinationAmount} onChange={(event) => setDestinationAmount(event.target.value)} placeholder={`For example 0.01 ${destinationUnit}`} /></label><label>USD budget (optional, USD)<input inputMode="decimal" value={sourceBudget} onChange={(event) => setSourceBudget(event.target.value)} placeholder="For example 50 USD" /></label></div>
       <div className="grid"><label>Customer geography<input value={geography} onChange={(event) => setGeography(event.target.value)} required placeholder="For example US-IL" /></label><label>After purchase<select value={postPurchase} onChange={(event) => setPostPurchase(event.target.value)}><option value="none">Hold in my wallet</option><option value="dapp">Use a separately approved dApp handoff</option></select></label></div>
-      <p className="hint">Provide a crypto amount or a USD budget. No payment or wallet creation starts from this form.</p><button disabled={Boolean(busy || purchase)} type="submit">{busy ?? "Create purchase request"}</button>
+      <p className="hint">Crypto amount is the destination asset quantity; USD budget is the source spending limit. Provide one. No payment or wallet creation starts from this form.</p><button disabled={Boolean(busy || purchase)} type="submit">{busy ?? "Create purchase request"}</button>
     </fieldset></form>{!purchase && previousRequestId && <p className="hint">Previous request <code>{previousRequestId}</code> remains available for review.</p>}</section>
      {purchase && ["intake", "awaiting_authentication", "authenticated", "awaiting_wallet"].includes(purchase.state) && !walletResult && <button disabled={Boolean(busy)} onClick={() => { setBusy("Preparing wallet"); void prepareWallet(purchase.requestId).then(() => setBusy(null)).catch(showError); }}>Continue wallet selection</button>}
      {purchase && !purchase.sessionId && ["awaiting_quote", "quote_ready", "awaiting_approval", "expired"].includes(purchase.state) && <button disabled={Boolean(busy)} onClick={() => void getQuote(purchase.requestId)}>Get a fresh quote</button>}

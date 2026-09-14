@@ -42,7 +42,7 @@ Then run `npm run dev` and open one of the checkout URLs above. Stripe returns t
 
 The current customer product is a **$195 USD monthly retainer** for maintenance of a working Stripe-hosted onramp link. The customer starts at `POST /retainer/checkout-session` after explicitly consenting to the retainer scope. Stripe Checkout and Stripe Billing handle the subscription payment; the success return is `/retainer/welcome?session_id={CHECKOUT_SESSION_ID}`.
 
-The welcome flow can verify the canonical Checkout Session through `GET /retainer/checkout-session/:sessionId/status`. That route accepts only a mode-matching `cs_test_` or `cs_live_` ID, retrieves the Session with its subscription expanded, and returns a paid result only for the SET retainer metadata, exact `$195 USD` amount, paid Checkout status, and an active or trialing subscription. It returns only `paid`, an optional `subscriptionStatus`, and the approved product URL. It does not expose customer identifiers.
+The welcome flow can verify the canonical Checkout Session through `GET /retainer/checkout-session/:sessionId/status`. That route accepts only a mode-matching `cs_test_` or `cs_live_` ID, retrieves the Session with its subscription expanded, and returns a paid result only for the SET retainer metadata, exact `$195 USD` amount, paid Checkout status, an active or trialing subscription, and a valid subscription ID. In live mode, checkout also fails closed unless the durable retainer reconciliation store is configured. The status response exposes only `paid`, an optional `subscriptionStatus`, the approved product URL, and the nonsecret subscription ID when payment is verified. It does not expose customer identifiers.
 
 After verified payment, the customer receives the approved retainer product access through the deployed Site flow. Stripe and Privy are third-party providers used by the workflow; SET does not represent those provider technologies as SET-owned. Customer authentication, OTP or other provider verification, KYC, payment entry, and any customer-controlled wallet action remain customer/provider steps. No live final crypto transaction has been executed as part of this release evidence.
 
@@ -88,8 +88,9 @@ Current tools are read-only:
 
 - `get_commerce_readiness` — returns non-secret MPP and Privy configuration gates.
 - `prepare_crypto_acquisition` — normalizes a complete intake packet and returns the next confirmation gate.
+- `get_onramp_maintenance_offer` — returns the bounded $195 retainer offer and its provider/customer-action boundary.
 
-Both tools declare read-only, non-destructive, idempotent annotations and return `executionAuthorized: false`. They cannot create a wallet, Onramp session, payment, approval, signature, swap, provider account, plan, or app resource.
+All three tools declare read-only, non-destructive, idempotent annotations and return `executionAuthorized: false`. They cannot create a wallet, Onramp session, payment, approval, signature, swap, provider account, plan, or app resource.
 
 After starting the server locally, run an MCP client or Inspector against:
 
@@ -177,7 +178,7 @@ git config core.hooksPath .githooks
 - `[V]` Live credentials are accepted only when production mode, HTTPS, and the required Checkout and webhook configuration are all present; `.env.app` and other `.env.*` files are ignored.
 - `[V]` Webhook requests fail closed unless the signature can be verified.
 - `[V]` The live SET account, production deployment, and dedicated PaymentIntent webhook endpoint were inspected on 2026-08-24.
-- `[D]` No live payment was submitted during implementation or verification. Fulfillment remains a manual, webhook-verified operating step until a durable reconciliation store is added.
+- `[D]` No live payment was submitted during implementation or verification. The $195 retainer fails closed in live mode without durable reconciliation; no real customer subscription, workspace activation, or operator notification is claimed. Direct PaymentIntent fulfillment remains a separate manual, webhook-verified operating path.
 
 Historical release matrices and older blueprint sections describe earlier disabled or separately scoped `$495` review, PaymentIntent, connected-account, and execution-wallet concepts. They remain historical implementation records and should not be read as the current `$195/month` retainer offer or as evidence of customer revenue, customer funding, passive-income results, a custom domain, or a completed live crypto transaction.
 

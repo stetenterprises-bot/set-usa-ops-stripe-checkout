@@ -226,6 +226,13 @@ export function createApp(config: RuntimeConfig, dependencies: AppDependencies =
     next();
   });
 
+  // This host serves API and operator endpoints. Keep it out of public
+  // crawls; the separately hosted customer Site owns public discovery.
+  app.get("/robots.txt", (_request: Request, response: Response) => {
+    response.setHeader("Cache-Control", "public, max-age=3600");
+    response.type("text/plain").send("User-agent: *\nDisallow: /\n");
+  });
+
   app.get("/health", (_request: Request, response: Response) => {
     response.json({
       ok: true,
@@ -237,6 +244,7 @@ export function createApp(config: RuntimeConfig, dependencies: AppDependencies =
       cryptoOnrampConfigured: Boolean(config.stripeApiKey && config.stripePublishableKey && config.stripeWebhookSecret && config.agenticEventsDatabaseUrl),
       cryptoEmbeddedComponentsConfigured: Boolean(config.stripeApiKey && config.stripePublishableKey && config.stripeLinkOauthClientId && config.stripeLinkOauthClientSecret),
       purchaseStoreConfigured: Boolean(config.agenticEventsDatabaseUrl),
+      retainerReconciliationConfigured: Boolean(retainerStore && config.stripeWebhookSecret),
       privyAuthenticationConfigured: Boolean(config.privyAppId && config.privyAppSecret),
       purchaseApprovalConfigured: Boolean(effectivePurchaseApprovalSigningKey(config)),
       purchasingConfigured: Boolean(purchasingOrchestrator),
@@ -475,6 +483,7 @@ export function createApp(config: RuntimeConfig, dependencies: AppDependencies =
   app.post("/retainer/checkout-session", async (request, response) => {
     response.setHeader("Cache-Control", "no-store");
     if (!stripe || !config.stripePublishableKey) return response.status(503).json({ error: "Retainer checkout is not configured." });
+    if (stripeMode === "live" && !retainerStore) return response.status(503).json({ error: "Retainer reconciliation is not configured." });
     if (request.body?.consent !== true || request.body?.scope !== RETAINER_SCOPE) return response.status(400).json({ error: "Explicit consent to the retainer scope is required." });
     const customerEmail = normalizedEmail(request.body?.customerEmail);
     if (!customerEmail) return response.status(400).json({ error: "A valid customer email address is required." });
@@ -510,6 +519,9 @@ export function createApp(config: RuntimeConfig, dependencies: AppDependencies =
       const session = await stripe.checkout.sessions.retrieve(sessionId, { expand: ["subscription"] });
       const metadata = session.metadata ?? {};
       const subscription = typeof session.subscription === "object" && session.subscription !== null ? session.subscription : null;
+      const subscriptionId = subscription && typeof subscription.id === "string" && /^sub_[A-Za-z0-9]+$/.test(subscription.id)
+        ? subscription.id
+        : undefined;
       const subscriptionStatus = subscription && typeof subscription.status === "string" ? subscription.status : undefined;
       const paid = session.livemode === expectedLiveMode &&
         session.mode === "subscription" &&
@@ -518,11 +530,12 @@ export function createApp(config: RuntimeConfig, dependencies: AppDependencies =
         session.amount_total === RETAINER_PRICE_AMOUNT &&
         session.currency === RETAINER_CURRENCY &&
         metadata.seller === "SET Business Consults" &&
-        metadata.offer === "operations-assurance-retainer-195-usd-monthly";
+        metadata.offer === "operations-assurance-retainer-195-usd-monthly" &&
+        Boolean(subscriptionId);
       return response.json({
         paid,
         ...(subscriptionStatus ? { subscriptionStatus } : {}),
-        ...(paid ? { productUrl: `${RETAINER_SITE_URL}/retainer/product` } : {})
+        ...(paid ? { productUrl: `${RETAINER_SITE_URL}/retainer/product`, subscriptionId } : {})
       });
     } catch {
       return response.status(502).json({ error: "Retainer Checkout Session lookup failed." });

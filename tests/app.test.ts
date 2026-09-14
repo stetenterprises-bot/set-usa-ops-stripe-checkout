@@ -51,6 +51,7 @@ describe("development server", () => {
       cryptoOnrampConfigured: false,
       cryptoEmbeddedComponentsConfigured: false,
       purchaseStoreConfigured: false,
+      retainerReconciliationConfigured: false,
       privyAuthenticationConfigured: false,
       purchaseApprovalConfigured: false,
       purchasingConfigured: false,
@@ -64,6 +65,18 @@ describe("development server", () => {
         chainId: 8453
       }
     });
+  });
+
+  it("reports retainer reconciliation readiness as a nonsecret boolean", async () => {
+    const response = await request(createApp({
+      port: 4242,
+      applicationBaseUrl: "http://127.0.0.1:4242",
+      stripeWebhookSecret: ["whsec", "unitvalue"].join("_")
+    }, { retainerStore: { recordEvent: vi.fn() } })).get("/health");
+
+    expect(response.status).toBe(200);
+    expect(response.body.retainerReconciliationConfigured).toBe(true);
+    expect(response.text).not.toContain(["whsec", "unitvalue"].join("_"));
   });
 
   it("fails closed when webhook verification is not configured", async () => {
@@ -405,6 +418,37 @@ describe("development server", () => {
     expect(response.body.error).toContain("scope");
   });
 
+  it("fails closed for live retainer checkout without durable reconciliation", async () => {
+    const create = vi.fn();
+    const stripe = { checkout: { sessions: { create } } } as unknown as Stripe;
+    const app = createApp({
+      port: 4242,
+      stripeMode: "live",
+      applicationBaseUrl: "https://render.example",
+      stripeApiKey: ["sk", "live", "unitvalue"].join("_"),
+      stripePublishableKey: ["pk", "live", "unitvalue"].join("_"),
+      stripeWebhookSecret: ["whsec", "unitvalue"].join("_")
+    }, { stripeClient: stripe });
+
+    const response = await request(app)
+      .post("/retainer/checkout-session")
+      .set("idempotency-key", "retainer_live_12345678")
+      .send({ customerEmail: "buyer@example.com", consent: true, scope: RETAINER_SCOPE });
+
+    expect(response.status).toBe(503);
+    expect(response.body.error).toContain("reconciliation");
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("disallows crawlers on the API host", async () => {
+    const response = await request(createApp({ port: 4242, applicationBaseUrl: "http://127.0.0.1:4242" }))
+      .get("/robots.txt");
+
+    expect(response.status).toBe(200);
+    expect(response.headers["content-type"]).toContain("text/plain");
+    expect(response.text).toBe("User-agent: *\nDisallow: /\n");
+  });
+
   it("uses stable Checkout parameters for safe retainer retries", async () => {
     const create = vi.fn().mockResolvedValue({ id: "cs_retainer", url: "https://checkout.stripe.test/cs_retainer", livemode: false });
     const stripe = { checkout: { sessions: { create } } } as unknown as Stripe;
@@ -444,7 +488,7 @@ describe("development server", () => {
       amount_total: 19_500,
       currency: "usd",
       metadata: { seller: "SET Business Consults", offer: "operations-assurance-retainer-195-usd-monthly" },
-      subscription: { status: "active", current_period_end: 1_800_000_000 },
+      subscription: { id: "sub_status123", status: "active", current_period_end: 1_800_000_000 },
       customer: "cus_private",
       customer_email: "private@example.com"
     });
@@ -463,7 +507,8 @@ describe("development server", () => {
     expect(response.body).toEqual({
       paid: true,
       subscriptionStatus: "active",
-      productUrl: "https://ledgerline-compliance.sthomas935.chatgpt.site/retainer/product"
+      productUrl: "https://ledgerline-compliance.sthomas935.chatgpt.site/retainer/product",
+      subscriptionId: "sub_status123"
     });
     expect(response.headers["cache-control"]).toBe("no-store");
     expect(response.text).not.toContain("cus_private");
@@ -480,7 +525,7 @@ describe("development server", () => {
       amount_total: 19_500,
       currency: "usd",
       metadata: { seller: "other", offer: "other" },
-      subscription: { status: "canceled" }
+      subscription: { id: "sub_unpaid123", status: "canceled" }
     });
     const stripe = { checkout: { sessions: { retrieve } } } as unknown as Stripe;
     const app = createApp({ port: 4242, applicationBaseUrl: "http://127.0.0.1:4242", stripeApiKey: ["sk", "test", "unitvalue"].join("_"), stripePublishableKey: ["pk", "test", "unitvalue"].join("_") }, { stripeClient: stripe });
